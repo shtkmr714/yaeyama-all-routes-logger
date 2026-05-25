@@ -411,14 +411,19 @@ def log_daily_records():
     now = datetime.now(JST)
     today_str = now.strftime("%Y-%m-%d")
 
-    # 重複チェック：今日の route1 行が既に存在するか
+    # 重複チェック：今日すでに記録済みのルートを特定し、欠けているルートのみ書き込む
+    existing_routes = set()
     try:
         col_date  = ws.col_values(1)   # date 列
         col_route = ws.col_values(3)   # route_id 列
         for d, r in zip(col_date, col_route):
-            if d == today_str and r == "route1":
-                print(f"  [スキップ] {today_str} の記録はすでに存在します")
-                return
+            if d == today_str:
+                existing_routes.add(r)
+        if len(existing_routes) >= 7:
+            print(f"  [スキップ] {today_str} の全航路記録はすでに存在します")
+            return
+        if existing_routes:
+            print(f"  [部分スキップ] 記録済み: {sorted(existing_routes)} / 未記録を追加します")
     except Exception as e:
         print(f"  [警告] 重複チェックエラー（続行）: {e}")
 
@@ -427,9 +432,12 @@ def log_daily_records():
     # 安栄観光HP 一括取得
     all_routes = get_all_routes_operation_status()
 
-    # 全7航路の行を構築
+    # 全7航路の行を構築（記録済みルートはスキップ）
     rows = []
     for route_id, cfg in ROUTE_CONFIGS.items():
+        if route_id in existing_routes:
+            print(f"  [スキップ] {route_id} は記録済み")
+            continue
         op      = all_routes["routes"][route_id]
         weather = get_weather_for_coord(cfg["lat"], cfg["lon"])
         bins    = op["hs_bins"]
