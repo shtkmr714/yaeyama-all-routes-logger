@@ -123,14 +123,32 @@ def _status_from_span(span):
 
 
 def _cancel_reason(text):
-    """テキストから欠航理由カテゴリを判定"""
+    """
+    テキストから欠航理由カテゴリを判定。
+    この関数は欠航が確定した後にのみ呼ばれる想定のため、
+    「通常運航」チェックは持たない（混在テキストで誤判定するため除去）。
+    """
     if any(w in text for w in ["機器", "エンジン", "トラブル", "故障", "点検", "整備"]):
         return "equipment"
     if "ドック" in text or "dock" in text.lower():
         return "dock"
-    if any(w in text for w in ["通常運航", "◯"]):
-        return "none"
     return "weather"
+
+
+def _split_caption(caption_text):
+    """
+    caption_text を高速船セクションと貨客船セクションに分割する。
+    「貨客船」または「フェリーはてるま」が最初に出現する位置で分割。
+    波照間航路では高速船欠航（海上時化）と貨客船欠航（ドック）が
+    同一 caption_text に混在するため、各船種の欠航理由判定を分離する。
+    """
+    ferry_markers = ["貨客船", "フェリーはてるま"]
+    split_pos = len(caption_text)
+    for marker in ferry_markers:
+        pos = caption_text.find(marker)
+        if 0 <= pos < split_pos:
+            split_pos = pos
+    return caption_text[:split_pos].strip(), caption_text[split_pos:].strip()
 
 
 def _bin_operated(bins, idx):
@@ -228,6 +246,9 @@ def _parse_route(soup, route_id, caution_text):
     caption_text = caption_div.get_text(separator=" ", strip=True) if caption_div else ""
     r["caption_text"] = caption_text
 
+    # caption_text をHS部分・フェリー部分に分割（波照間で混在する場合の対策）
+    hs_caption, ferry_caption = _split_caption(caption_text)
+
     # 便別ステータス（石垣発 = port_details[0]）
     port_details = condition_item.find_all("div", class_="condition_item_port_detail")
     hs_bins = []
@@ -244,26 +265,33 @@ def _parse_route(soup, route_id, caution_text):
             hs_bins.append({"time": time_text, "status": status})
     r["hs_bins"] = hs_bins
 
-    # 欠航理由（✕または△が含まれる場合）
+    # HS欠航理由：hs_caption（フェリー部分を除いたテキスト）のみで判定。
+    # caption_text 全体を使うとフェリーの「ドック」がHSの欠航理由に混入する。
     if any(b["status"] == "✕" for b in hs_bins):
-        r["hs_cancel_reason"] = _cancel_reason(caption_text)
+        r["hs_cancel_reason"] = _cancel_reason(hs_caption or caption_text)
     elif any(b["status"] == "△" for b in hs_bins):
-        r["hs_cancel_reason"] = _cancel_reason(caption_text) if "通常運航" not in caption_text else "none"
+        # △は「通常運航」が明示されている場合は none（一部条件付き運航）
+        if "通常運航" in hs_caption:
+            r["hs_cancel_reason"] = "none"
+        else:
+            r["hs_cancel_reason"] = _cancel_reason(hs_caption or caption_text)
     else:
         r["hs_cancel_reason"] = "none"
 
-    # 貨客船（フェリーはてるま）はroute6のみ
+    # 貨客船（フェリーはてるま）はroute6のみ。ferry_caption のみで判定。
     if route_id == "route6":
         ferry_keywords        = ["フェリーはてるま", "貨客"]
         ferry_cancel_keywords = ["運休", "欠航", "ドック"]
+        # caption_text にフェリー情報があれば ferry_caption を使用
         if any(kw in caption_text for kw in ferry_keywords):
-            if any(kw in caption_text for kw in ferry_cancel_keywords):
+            if any(kw in ferry_caption for kw in ferry_cancel_keywords):
                 r["ferry_operated"]      = 0
-                r["ferry_cancel_reason"] = _cancel_reason(caption_text)
+                r["ferry_cancel_reason"] = _cancel_reason(ferry_caption)
             else:
                 r["ferry_operated"]      = 1
                 r["ferry_cancel_reason"] = "none"
         else:
+            # caption_text にフェリー情報がない場合は caution_text で補完
             if "フェリーはてるま" in caution_text:
                 if any(kw in caution_text for kw in ferry_cancel_keywords):
                     r["ferry_operated"]      = 0
