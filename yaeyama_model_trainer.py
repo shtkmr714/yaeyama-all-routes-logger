@@ -30,6 +30,9 @@ OUTPUT_FILE = "yaeyama_cancel_model.json"
 
 FEATURES = ["wave_max", "swell_max", "wind_max"]   # 当日実測値（予測時はforecastを代入）
 
+# route2（小浜島）専用: swell_period_max を追加（wave_maxは欠航と無相関）
+ROUTE2_FEATURES = ["wave_max", "swell_max", "wind_max", "swell_period_max"]
+
 ROUTE_CONFIGS = {
     "route1": "大原（西表島東）",
     "route2": "小浜島",
@@ -112,6 +115,7 @@ def load_dataframe(ws):
 
     num_cols = [
         "wave_max", "swell_max", "wind_max",
+        "swell_period_max", "wind_dir_dominant",
         "tmr_wave_max", "tmr_swell_max", "tmr_wind_max",
         "dayafter_wave_max",
         "hs_weather_cancel", "ferry_weather_cancel",
@@ -130,11 +134,14 @@ def load_dataframe(ws):
 # モデル学習
 # ============================================================
 
-def train_logistic(X, y, route_id, target_name):
+def train_logistic(X, y, route_id, target_name, features=None):
     """
     StandardScaler + LogisticRegression を学習し、
     モデルパラメータ辞書（JSON保存用）を返す。
+    features: 使用する特徴量名リスト（省略時はグローバルの FEATURES）
     """
+    if features is None:
+        features = FEATURES
     n_pos   = int(y.sum())
     n_total = len(y)
     cancel_rate = n_pos / n_total if n_total > 0 else 0.0
@@ -168,13 +175,13 @@ def train_logistic(X, y, route_id, target_name):
     print(f"    CV AUC: {cv_auc:.3f} ± {cv_std:.3f}")
 
     # --- 係数の解釈（特徴量重要度） ---
-    for feat, coef in zip(FEATURES, clf.coef_[0]):
+    for feat, coef in zip(features, clf.coef_[0]):
         print(f"      {feat}: {coef:+.3f}")
 
     return {
         "route_id":           route_id,
         "target":             target_name,
-        "features":           FEATURES,
+        "features":           features,
         "scaler_mean":        scaler.mean_.tolist(),
         "scaler_scale":       scaler.scale_.tolist(),
         "coef":               clf.coef_[0].tolist(),
@@ -192,18 +199,29 @@ def train_logistic(X, y, route_id, target_name):
 # モデル適用（sklearn 不要の inference 用）
 # ============================================================
 
-def predict_cancel_prob(model_params, wave, swell, wind):
+def predict_cancel_prob(model_params, wave, swell, wind, swell_period=None):
     """
     保存した JSON パラメータから欠航確率（0〜1）を計算。
     sklearn 不要。ferry_alert.py / forecast_publisher.py から呼び出し可能。
 
+    route2 など swell_period_max を使うモデルは swell_period を渡すこと。
+
     使用例:
         with open("yaeyama_cancel_model.json") as f:
             models = json.load(f)
+        # 通常（3特徴量）
         prob = predict_cancel_prob(models["route6"]["hs"], wave=2.5, swell=1.8, wind=12.0)
+        # route2（4特徴量）
+        prob = predict_cancel_prob(models["route2"]["hs"], wave=1.2, swell=0.8, wind=8.0, swell_period=14.0)
     """
-    m    = model_params
-    vals = [wave, swell, wind]
+    m         = model_params
+    feat_vals = {
+        "wave_max":        wave,
+        "swell_max":       swell,
+        "wind_max":        wind,
+        "swell_period_max": swell_period,
+    }
+    vals = [feat_vals[f] for f in m["features"]]
     x_s  = [(v - mu) / sc
             for v, mu, sc in zip(vals, m["scaler_mean"], m["scaler_scale"])]
     z    = m["intercept"] + sum(c * x for c, x in zip(m["coef"], x_s))
@@ -261,10 +279,12 @@ def main():
         print(f"[{route_id}] {route_name}")
 
         df_r  = df[df["route_id"] == route_id].copy()
-        # 気象データが揃っている行のみ
-        mask  = df_r[FEATURES].notna().all(axis=1)
+        # 航路固有の特徴量セットを決定
+        route_features = ROUTE2_FEATURES if route_id == "route2" else FEATURES
+        # 基本気象データ（3列）が揃っている行のみ（route2はさらに swell_period_max も要求）
+        mask  = df_r[route_features].notna().all(axis=1)
         df_r  = df_r[mask]
-        print(f"  気象データあり行: {len(df_r):,}")
+        print(f"  気象データあり行: {len(df_r):,}  使用特徴量: {route_features}")
 
         entry = {"route_name": route_name}
 
@@ -279,9 +299,10 @@ def main():
             df_hs = df_r[df_r["hs_bins_count"].fillna(0) > 0].dropna(
                 subset=["hs_weather_cancel"])
             if len(df_hs) > 0:
-                X_hs = df_hs[FEATURES].values.astype(float)
+                X_hs = df_hs[route_features].values.astype(float)
                 y_hs = df_hs["hs_weather_cancel"].values.astype(int)
-                entry["hs"] = train_logistic(X_hs, y_hs, route_id, "hs_weather_cancel")
+                entry["hs"] = train_logistic(X_hs, y_hs, route_id, "hs_weather_cancel",
+                                             features=route_features)
             else:
                 print("    データなし")
                 entry["hs"] = None
