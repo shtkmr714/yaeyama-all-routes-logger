@@ -22,37 +22,7 @@
   },
   "route2": {
     "route_name": "小浜島",
-    "hs": {
-      "route_id": "route2",
-      "target": "hs_weather_cancel",
-      "features": [
-        "wave_max",
-        "swell_max",
-        "wind_max"
-      ],
-      "scaler_mean": [
-        1.3692048192771085,
-        0.9636626506024095,
-        7.1615301204819275
-      ],
-      "scaler_scale": [
-        0.604575401319297,
-        0.3989287848125408,
-        2.5754132097393585
-      ],
-      "coef": [
-        0.15007528460575273,
-        0.30864020003795334,
-        -0.18353609933120676
-      ],
-      "intercept": -0.03761773738862259,
-      "threshold": 0.5,
-      "train_samples": 830,
-      "positive_samples": 112,
-      "cancellation_rate": 0.1349,
-      "cv_auc": 0.5874,
-      "cv_auc_std": 0.0329
-    }
+    "hs": null
   },
   "route3": {
     "route_name": "竹富島",
