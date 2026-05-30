@@ -42,6 +42,41 @@ ROUTE_CONFIGS = {
 
 MIN_POSITIVE = 20    # 正例がこれ未満ならモデル構築をスキップ
 
+# ルールベースモデルの閾値（threshold_analyzerの結果から設定）
+# model_type = "rule" の場合に使用
+RULE_BASED_PARAMS = {
+    "route1": {
+        "model_type":      "rule",
+        "route_id":        "route1",
+        "target":          "hs_weather_cancel",
+        "features":        ["wave_max", "wind_max"],
+        "wave_thr_high":   4.50,   # この閾値以上: 高確率欠航（精度85%）
+        "wave_thr_mid":    3.25,   # F1最大の閾値（精度64%）
+        "wind_thr":        12.0,   # F1最大の閾値（精度58%）
+        "prob_wave_high":  0.80,
+        "prob_wave_mid":   0.50,
+        "prob_wind_add":   0.20,
+        "f1_wave":         0.621,
+        "f1_wind":         0.647,
+        "note":            "正例15件でロジスティック回帰スキップ。threshold_analyzerの結果に基づくルールベース。",
+    },
+    "route3": {
+        "model_type":      "rule",
+        "route_id":        "route3",
+        "target":          "hs_weather_cancel",
+        "features":        ["wave_max", "wind_max"],
+        "wave_thr_high":   3.75,   # この閾値以上: 精度100%（必ず欠航）
+        "wave_thr_mid":    2.50,   # 中程度リスク
+        "wind_thr":        12.0,   # F1最大の閾値（精度47%）
+        "prob_wave_high":  0.90,
+        "prob_wave_mid":   0.35,
+        "prob_wind_add":   0.20,
+        "f1_wave":         0.435,
+        "f1_wind":         0.486,
+        "note":            "正例18件でロジスティック回帰スキップ。wave>=3.75は精度100%（必ず欠航）。",
+    },
+}
+
 
 # ============================================================
 # Sheets 接続
@@ -176,6 +211,38 @@ def predict_cancel_prob(model_params, wave, swell, wind):
 
 
 # ============================================================
+# ルールベース推論（sklearn 不要）
+# ============================================================
+
+def predict_cancel_prob_rule(model_params, wave, swell, wind):
+    """
+    ルールベースモデルの欠航確率推論関数（sklearn不要）。
+    正例不足でロジスティック回帰をスキップした航路に使用。
+
+    使用例:
+        with open("yaeyama_cancel_model.json") as f:
+            models = json.load(f)
+        m = models["route1"]["hs"]
+        if m and m.get("model_type") == "rule":
+            prob = predict_cancel_prob_rule(m, wave=3.5, swell=2.0, wind=13.0)
+    """
+    p = model_params
+    score = 0.0
+
+    if wave >= p["wave_thr_high"]:
+        score = p["prob_wave_high"]
+    elif wave >= p["wave_thr_mid"]:
+        score = p["prob_wave_mid"]
+    elif wave >= p["wave_thr_mid"] * 0.8:
+        score = p["prob_wave_mid"] * 0.5
+
+    if wind >= p["wind_thr"]:
+        score = min(score + p["prob_wind_add"], 0.95)
+
+    return round(score, 3)
+
+
+# ============================================================
 # メイン
 # ============================================================
 
@@ -203,24 +270,25 @@ def main():
 
         # ── HS 欠航モデル ──────────────────────────────────
         print(f"\n  [HS 欠航モデル]")
-        df_hs = df_r[df_r["hs_bins_count"].fillna(0) > 0].dropna(
-            subset=["hs_weather_cancel"])
-        if len(df_hs) > 0:
-            X_hs = df_hs[FEATURES].values.astype(float)
-            y_hs = df_hs["hs_weather_cancel"].values.astype(int)
-            entry["hs"] = train_logistic(X_hs, y_hs, route_id, "hs_weather_cancel")
-        else:
-            print("    データなし")
-            entry["hs"] = None
 
-        # ── フェリー欠航モデル（ferry_operatedデータがある航路のみ）──
-        df_fw = df_r[df_r["ferry_operated"].notna()].dropna(
-            subset=["ferry_weather_cancel"])
-        if len(df_fw) > 0 and df_fw["ferry_weather_cancel"].notna().sum() > 0:
-            print(f"\n  [フェリー欠航モデル]")
-            X_fw = df_fw[FEATURES].values.astype(float)
-            y_fw = df_fw["ferry_weather_cancel"].values.astype(int)
-            entry["ferry"] = train_logistic(X_fw, y_fw, route_id, "ferry_weather_cancel")
+        # ルールベース対象航路はロジスティック回帰をスキップしてルールを適用
+        if route_id in RULE_BASED_PARAMS:
+            print(f"    → ルールベースモデルを使用（正例不足）")
+            entry["hs"] = RULE_BASED_PARAMS[route_id]
+        else:
+            df_hs = df_r[df_r["hs_bins_count"].fillna(0) > 0].dropna(
+                subset=["hs_weather_cancel"])
+            if len(df_hs) > 0:
+                X_hs = df_hs[FEATURES].values.astype(float)
+                y_hs = df_hs["hs_weather_cancel"].values.astype(int)
+                entry["hs"] = train_logistic(X_hs, y_hs, route_id, "hs_weather_cancel")
+            else:
+                print("    データなし")
+                entry["hs"] = None
+
+        # ── フェリー欠航モデル: AUC低（0.644）のため廃止。HSモデルで代替。──
+        # route6の ferry_weather_cancel は欠航率68%と異常に高く、
+        # 気象以外の要因（定期メンテ等）が混在している可能性があるため除外。
 
         all_models[route_id] = entry
 
@@ -231,18 +299,23 @@ def main():
 
     # ── サマリー ──────────────────────────────────────────
     print("\n" + "=" * 60)
-    print(f"{'Route':<8} {'対象':<6} {'n':>6} {'欠航率':>7} {'CV AUC':>8}  評価")
-    print("-" * 50)
+    print(f"{'Route':<8} {'対象':<6} {'種別':<6} {'n':>6} {'欠航率':>7} {'スコア':>8}  評価")
+    print("-" * 58)
     for rid, route_data in all_models.items():
-        for mtype in ["hs", "ferry"]:
-            m = route_data.get(mtype)
-            if not m:
-                continue
+        m = route_data.get("hs")
+        if not m:
+            continue
+        mtype = m.get("model_type", "logistic")
+        if mtype == "rule":
+            f1 = max(m.get("f1_wave", 0), m.get("f1_wind", 0))
+            quality = "📏" if f1 >= 0.40 else "⚠"
+            print(f"{rid:<8} {'hs':<6} {'rule':<6} {'—':>6} {'—':>7} {f1:>8.3f}  {quality} (F1)")
+        else:
             quality = ("✅" if m["cv_auc"] >= 0.80
                        else "⚠" if m["cv_auc"] >= 0.65
                        else "❌")
-            print(f"{rid:<8} {mtype:<6} {m['train_samples']:>6,} "
-                  f"{m['cancellation_rate']:>7.1%} {m['cv_auc']:>8.3f}  {quality}")
+            print(f"{rid:<8} {'hs':<6} {'lr':<6} {m['train_samples']:>6,} "
+                  f"{m['cancellation_rate']:>7.1%} {m['cv_auc']:>8.3f}  {quality} (AUC)")
     print("=" * 60)
     print(f"\n保存完了: {OUTPUT_FILE}")
 
