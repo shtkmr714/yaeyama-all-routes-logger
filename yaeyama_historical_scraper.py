@@ -184,7 +184,7 @@ def _fetch_weather_year(lat, lon, year):
             f"?latitude={lat}&longitude={lon}"
             f"&start_date={start}&end_date={end}"
             f"&hourly=wave_height,swell_wave_height",
-            timeout=30
+            timeout=10
         ).json()
 
         times  = marine.get("hourly", {}).get("time", [])
@@ -206,7 +206,7 @@ def _fetch_weather_year(lat, lon, year):
             f"?latitude={lat}&longitude={lon}"
             f"&start_date={start}&end_date={end}"
             f"&hourly=wind_speed_10m&wind_speed_unit=ms",
-            timeout=30
+            timeout=10
         ).json()
 
         w_times = weather.get("hourly", {}).get("time", [])
