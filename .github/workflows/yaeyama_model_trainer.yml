@@ -1,0 +1,39 @@
+name: Yaeyama Model Trainer (One-Time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GOOGLE_SHEETS_ID_YAEYAMA: ${{ secrets.GOOGLE_SHEETS_ID_YAEYAMA }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install gspread google-auth scikit-learn pandas numpy
+
+      - name: Train model
+        run: python yaeyama_model_trainer.py
+
+      - name: Commit model JSON
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add yaeyama_cancel_model.json
+          git diff --staged --quiet || git commit -m "Update yaeyama_cancel_model.json [auto]"
+          git push
