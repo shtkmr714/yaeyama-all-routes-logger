@@ -6,7 +6,7 @@ on:
   workflow_dispatch:         # 手動実行も可能
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   log:
