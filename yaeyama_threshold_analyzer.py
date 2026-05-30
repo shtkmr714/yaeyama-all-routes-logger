@@ -15,6 +15,7 @@ ROUTES = {
     "route1": "大原（西表島東）",
     "route2": "小浜島",
     "route3": "竹富島",
+    "route4": "黒島",
 }
 FEATURES = ["wave_max", "swell_max", "wind_max"]
 
