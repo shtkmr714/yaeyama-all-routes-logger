@@ -470,67 +470,7 @@ def _risk_label(prob):
 
 
 # ============================================================
-# 4. Slack 通知
-# ============================================================
-
-def _send_slack_summary(today_str, route_data_list, models):
-    """
-    route_data_list: [(route_id, op_dict, weather_dict), ...]
-    models: yaeyama_cancel_model.json の内容（または None）
-    """
-    webhook = os.environ.get("SLACK_WEBHOOK_URL_YAEYAMA")
-    if not webhook:
-        print("  [スキップ] SLACK_WEBHOOK_URL_YAEYAMA 未設定")
-        return
-
-    lines = [f"*🚢 八重山航路ログ {today_str}*"]
-    lines.append("─" * 28)
-
-    # ── 本日運航状況 ────────────────────────────────────
-    for route_id, op, w in route_data_list:
-        cfg   = ROUTE_CONFIGS[route_id]
-        bins  = op["hs_bins"]
-        n_op  = sum(1 for b in bins if b["status"] == "◯")
-        n_all = len(bins)
-        status = f"HS {n_op}/{n_all}便" if n_all > 0 else "情報なし"
-
-        parts = [f"• *{cfg['name']}*: {status}"]
-        if route_id == "route6":
-            fop = op.get("ferry_operated")
-            parts.append("貨客船:運航" if fop == 1 else ("貨客船:欠航" if fop == 0 else ""))
-        wave = w.get("today_max_wave")
-        wind = w.get("today_max_wind")
-        if wave: parts.append(f"波{wave}m")
-        if wind: parts.append(f"風{wind}m/s")
-        lines.append("  ".join(p for p in parts if p))
-
-    # ── 明日の欠航リスク ──────────────────────────────
-    lines.append("")
-    lines.append("*📊 明日の欠航リスク予測*")
-    lines.append("─" * 28)
-
-    for route_id, _op, w in route_data_list:
-        cfg      = ROUTE_CONFIGS[route_id]
-        m_hs     = (models or {}).get(route_id, {}).get("hs") if models else None
-        tmr_wave = w.get("tmr_max_wave")
-        tmr_swell = w.get("tmr_max_swell")
-        tmr_wind = w.get("tmr_max_wind")
-        prob     = _predict_prob(m_hs, tmr_wave, tmr_swell, tmr_wind)
-        wave_str = f"波:{tmr_wave}m" if tmr_wave else "波:—"
-        wind_str = f"風:{tmr_wind}m/s" if tmr_wind else "風:—"
-        lines.append(f"• *{cfg['name']}*: {_risk_label(prob)}  ({wave_str} {wind_str})")
-
-    payload = {"text": "\n".join(lines)}
-    try:
-        resp = requests.post(webhook, json=payload, timeout=10)
-        resp.raise_for_status()
-        print("  ✅ Slack通知送信完了")
-    except Exception as e:
-        print(f"  [エラー] Slack送信失敗: {e}")
-
-
-# ============================================================
-# 5. Google Sheets への書き込み
+# 4. Google Sheets への書き込み
 # ============================================================
 
 def log_daily_records():
@@ -645,9 +585,13 @@ def log_daily_records():
     except Exception as e:
         print(f"  [エラー] Sheets書き込み失敗: {e}")
 
-    # Slack通知（運航状況 + 明日の欠航リスク）
+    # Instagram投稿（欠航リスク予報カルーセル）
     if route_data_list:
-        _send_slack_summary(today_str, route_data_list, cancel_models)
+        try:
+            from yaeyama_publisher import run_yaeyama_publisher
+            run_yaeyama_publisher(route_data_list, cancel_models)
+        except Exception as e:
+            print(f"  [警告] Instagram投稿エラー: {e}")
 
 
 # ============================================================
