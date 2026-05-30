@@ -1,7 +1,24 @@
 {
   "route1": {
     "route_name": "大原（西表島東）",
-    "hs": null
+    "hs": {
+      "model_type": "rule",
+      "route_id": "route1",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "wind_max"
+      ],
+      "wave_thr_high": 4.5,
+      "wave_thr_mid": 3.25,
+      "wind_thr": 12.0,
+      "prob_wave_high": 0.8,
+      "prob_wave_mid": 0.5,
+      "prob_wind_add": 0.2,
+      "f1_wave": 0.621,
+      "f1_wind": 0.647,
+      "note": "正例15件でロジスティック回帰スキップ。threshold_analyzerの結果に基づくルールベース。"
+    }
   },
   "route2": {
     "route_name": "小浜島",
@@ -39,7 +56,24 @@
   },
   "route3": {
     "route_name": "竹富島",
-    "hs": null
+    "hs": {
+      "model_type": "rule",
+      "route_id": "route3",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "wind_max"
+      ],
+      "wave_thr_high": 3.75,
+      "wave_thr_mid": 2.5,
+      "wind_thr": 12.0,
+      "prob_wave_high": 0.9,
+      "prob_wave_mid": 0.35,
+      "prob_wind_add": 0.2,
+      "f1_wave": 0.435,
+      "f1_wind": 0.486,
+      "note": "正例18件でロジスティック回帰スキップ。wave>=3.75は精度100%（必ず欠航）。"
+    }
   },
   "route4": {
     "route_name": "黒島",
@@ -111,37 +145,6 @@
       "cancellation_rate": 0.2716,
       "cv_auc": 0.8941,
       "cv_auc_std": 0.0153
-    },
-    "ferry": {
-      "route_id": "route6",
-      "target": "ferry_weather_cancel",
-      "features": [
-        "wave_max",
-        "swell_max",
-        "wind_max"
-      ],
-      "scaler_mean": [
-        1.6623931623931625,
-        1.175156695156695,
-        9.115242165242165
-      ],
-      "scaler_scale": [
-        0.799205427602192,
-        0.5446558974909746,
-        3.063849762750521
-      ],
-      "coef": [
-        0.9372363670681791,
-        -0.16631407273508111,
-        -0.0886344744642389
-      ],
-      "intercept": 0.10271558510351665,
-      "threshold": 0.5,
-      "train_samples": 351,
-      "positive_samples": 239,
-      "cancellation_rate": 0.6809,
-      "cv_auc": 0.644,
-      "cv_auc_std": 0.0613
     }
   },
   "route7": {
