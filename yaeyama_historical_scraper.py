@@ -382,7 +382,7 @@ def main():
             bins = op["hs_bins"]
             b    = [_bin_operated(bins, i) for i in range(6)]
 
-            has_cancel  = any(b[i] == 0 for i in range(len(bins)))
+            has_cancel  = any(x == 0 for x in b)
             hs_w_cancel = 1 if has_cancel and op["hs_cancel_reason"] == "weather" else 0
             fw_cancel   = 1 if op["ferry_operated"] == 0 and op["ferry_cancel_reason"] == "weather" else 0
 
