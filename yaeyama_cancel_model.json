@@ -1,0 +1,181 @@
+{
+  "route1": {
+    "route_name": "大原（西表島東）",
+    "hs": null
+  },
+  "route2": {
+    "route_name": "小浜島",
+    "hs": {
+      "route_id": "route2",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "swell_max",
+        "wind_max"
+      ],
+      "scaler_mean": [
+        1.3692048192771085,
+        0.9636626506024095,
+        7.1615301204819275
+      ],
+      "scaler_scale": [
+        0.604575401319297,
+        0.3989287848125408,
+        2.5754132097393585
+      ],
+      "coef": [
+        0.15007528460575273,
+        0.30864020003795334,
+        -0.18353609933120676
+      ],
+      "intercept": -0.03761773738862259,
+      "threshold": 0.5,
+      "train_samples": 830,
+      "positive_samples": 112,
+      "cancellation_rate": 0.1349,
+      "cv_auc": 0.5874,
+      "cv_auc_std": 0.0329
+    }
+  },
+  "route3": {
+    "route_name": "竹富島",
+    "hs": null
+  },
+  "route4": {
+    "route_name": "黒島",
+    "hs": null
+  },
+  "route5": {
+    "route_name": "上原（西表島北）",
+    "hs": {
+      "route_id": "route5",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "swell_max",
+        "wind_max"
+      ],
+      "scaler_mean": [
+        1.2468292682926831,
+        0.9234688346883468,
+        6.168875338753388
+      ],
+      "scaler_scale": [
+        0.6231182843770023,
+        0.4459621913671543,
+        2.2899462031204707
+      ],
+      "coef": [
+        2.428096373839649,
+        -0.8942141052197964,
+        0.5136848149542806
+      ],
+      "intercept": 0.0023540607895526726,
+      "threshold": 0.5,
+      "train_samples": 738,
+      "positive_samples": 276,
+      "cancellation_rate": 0.374,
+      "cv_auc": 0.8639,
+      "cv_auc_std": 0.0384
+    }
+  },
+  "route6": {
+    "route_name": "波照間島",
+    "hs": {
+      "route_id": "route6",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "swell_max",
+        "wind_max"
+      ],
+      "scaler_mean": [
+        1.7345258620689656,
+        1.22625,
+        9.435883620689655
+      ],
+      "scaler_scale": [
+        0.8003050276377051,
+        0.5634940928460686,
+        3.0224502782894076
+      ],
+      "coef": [
+        2.678206315729771,
+        -0.22158727216963758,
+        -0.1770791281314735
+      ],
+      "intercept": -0.46100105688673076,
+      "threshold": 0.5,
+      "train_samples": 464,
+      "positive_samples": 126,
+      "cancellation_rate": 0.2716,
+      "cv_auc": 0.8941,
+      "cv_auc_std": 0.0153
+    },
+    "ferry": {
+      "route_id": "route6",
+      "target": "ferry_weather_cancel",
+      "features": [
+        "wave_max",
+        "swell_max",
+        "wind_max"
+      ],
+      "scaler_mean": [
+        1.6623931623931625,
+        1.175156695156695,
+        9.115242165242165
+      ],
+      "scaler_scale": [
+        0.799205427602192,
+        0.5446558974909746,
+        3.063849762750521
+      ],
+      "coef": [
+        0.9372363670681791,
+        -0.16631407273508111,
+        -0.0886344744642389
+      ],
+      "intercept": 0.10271558510351665,
+      "threshold": 0.5,
+      "train_samples": 351,
+      "positive_samples": 239,
+      "cancellation_rate": 0.6809,
+      "cv_auc": 0.644,
+      "cv_auc_std": 0.0613
+    }
+  },
+  "route7": {
+    "route_name": "鳩間島",
+    "hs": {
+      "route_id": "route7",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max",
+        "swell_max",
+        "wind_max"
+      ],
+      "scaler_mean": [
+        1.7983333333333336,
+        1.408125,
+        7.922499999999999
+      ],
+      "scaler_scale": [
+        0.9026519570441065,
+        0.6759535124856344,
+        2.397922277722946
+      ],
+      "coef": [
+        -0.19197731692755376,
+        1.6661893683592566,
+        0.9575884993534973
+      ],
+      "intercept": 0.16228689347174813,
+      "threshold": 0.5,
+      "train_samples": 96,
+      "positive_samples": 45,
+      "cancellation_rate": 0.4688,
+      "cv_auc": 0.9115,
+      "cv_auc_std": 0.0724
+    }
+  }
+}
