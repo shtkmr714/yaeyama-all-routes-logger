@@ -1,0 +1,31 @@
+name: Yaeyama Threshold Analyzer (One-Time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      GOOGLE_SHEETS_ID_YAEYAMA: ${{ secrets.GOOGLE_SHEETS_ID_YAEYAMA }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install gspread google-auth pandas numpy
+
+      - name: Run analyzer
+        run: python yaeyama_threshold_analyzer.py

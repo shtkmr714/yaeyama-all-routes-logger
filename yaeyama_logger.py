@@ -15,6 +15,7 @@ GitHub Actions から呼び出す。
 import os
 import re
 import json
+import math
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -104,6 +105,9 @@ SHEET_HEADERS = [
     # 派生
     "hs_weather_cancel",    # 高速船が1便以上気象欠航（0/1）
     "ferry_weather_cancel", # 貨客船が気象欠航（0/1）
+    # 追加気象データ（route2 モデル精度向上用）
+    "swell_period_max",     # 当日の最大うねり周期（秒）
+    "wind_dir_dominant",    # 当日の平均風向（度: 0=北, 90=東, 180=南, 270=西）
 ]
 
 
@@ -321,20 +325,22 @@ def get_weather_for_coord(lat, lon):
         return _weather_cache[key]
 
     result = {
-        "today_max_wave":    None,
-        "today_max_swell":   None,
-        "today_max_wind":    None,
-        "tmr_max_wave":      None,
-        "tmr_max_swell":     None,
-        "tmr_max_wind":      None,
-        "dayafter_max_wave": None,
+        "today_max_wave":      None,
+        "today_max_swell":     None,
+        "today_max_wind":      None,
+        "tmr_max_wave":        None,
+        "tmr_max_swell":       None,
+        "tmr_max_wind":        None,
+        "dayafter_max_wave":   None,
+        "today_swell_period":  None,   # 当日最大うねり周期（秒）
+        "today_wind_dir":      None,   # 当日平均風向（度）
     }
 
     try:
         marine_url = (
             f"https://marine-api.open-meteo.com/v1/marine"
             f"?latitude={lat}&longitude={lon}"
-            f"&hourly=wave_height,swell_wave_height"
+            f"&hourly=wave_height,swell_wave_height,swell_wave_period"
             f"&timezone=Asia%2FTokyo&forecast_days=3"
         )
         marine_data = requests.get(marine_url, timeout=15).json()
@@ -342,7 +348,7 @@ def get_weather_for_coord(lat, lon):
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
-            f"&hourly=wind_speed_10m"
+            f"&hourly=wind_speed_10m,wind_direction_10m"
             f"&wind_speed_unit=ms"
             f"&timezone=Asia%2FTokyo&forecast_days=3"
         )
@@ -365,6 +371,25 @@ def get_weather_for_coord(lat, lon):
         result["tmr_max_swell"]     = _daily_max(marine_data,  "swell_wave_height", 1)
         result["tmr_max_wind"]      = _daily_max(weather_data, "wind_speed_10m",    1)
         result["dayafter_max_wave"] = _daily_max(marine_data,  "wave_height",       2)
+
+        # 追加: うねり周期・風向
+        result["today_swell_period"] = _daily_max(marine_data,  "swell_wave_period",   0)
+
+        # 風向は「円形平均」で集計
+        def _daily_wind_dir(data, delta):
+            target = (now + timedelta(days=delta)).strftime("%Y-%m-%d")
+            times  = data.get("hourly", {}).get("time", [])
+            values = data.get("hourly", {}).get("wind_direction_10m", [])
+            dirs   = [v for t, v in zip(times, values)
+                      if t.startswith(target) and v is not None]
+            if not dirs:
+                return None
+            rads = [d * math.pi / 180 for d in dirs]
+            s = sum(math.sin(r) for r in rads) / len(rads)
+            c = sum(math.cos(r) for r in rads) / len(rads)
+            return round(math.degrees(math.atan2(s, c)) % 360, 1)
+
+        result["today_wind_dir"] = _daily_wind_dir(weather_data, 0)
 
     except Exception as e:
         print(f"  [警告] Open-Meteo取得エラー ({lat},{lon}): {e}")
@@ -472,6 +497,8 @@ def log_daily_records():
             weather["dayafter_max_wave"],
             hs_w_cancel,
             ferry_w_cancel,
+            weather["today_swell_period"],         # swell_period_max
+            weather["today_wind_dir"],             # wind_dir_dominant
         ])
 
     # Sheetsに一括書き込み
