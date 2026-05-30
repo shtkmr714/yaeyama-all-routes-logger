@@ -19,7 +19,6 @@ import time
 import math
 import requests
 import numpy as np
-import pandas as pd
 from datetime import datetime
 
 SHEET_NAME = "yaeyama_operation_log"
