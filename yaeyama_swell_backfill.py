@@ -170,6 +170,13 @@ def main():
     first_new_col = col_letter(first_new_idx + 1)  # 1-based → A1 記法
     last_new_col  = col_letter(first_new_idx + n_new_cols)
 
+    # ── シートの列数を拡張（既存26列→28列）──────────────────
+    current_cols = ws.col_count
+    needed_cols  = first_new_idx + n_new_cols  # 0-based index + count = 必要な列数
+    if current_cols < needed_cols:
+        print(f"\n  シート列数を拡張: {current_cols} → {needed_cols}")
+        ws.resize(rows=ws.row_count, cols=needed_cols)
+
     # ヘッダー行の新列部分を更新
     print(f"\n  ヘッダー更新: {first_new_col}1:{last_new_col}1")
     ws.update(
