@@ -16,6 +16,7 @@ jobs:
     env:
       GOOGLE_SHEETS_ID_YAEYAMA: ${{ secrets.GOOGLE_SHEETS_ID_YAEYAMA }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      SLACK_WEBHOOK_URL_YAEYAMA: ${{ secrets.SLACK_WEBHOOK_URL_YAEYAMA }}
 
     steps:
       - name: Checkout

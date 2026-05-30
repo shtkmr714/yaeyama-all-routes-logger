@@ -399,7 +399,138 @@ def get_weather_for_coord(lat, lon):
 
 
 # ============================================================
-# 3. Google Sheets への書き込み
+# 3. 欠航確率モデル（sklearn不要のインライン推論）
+# ============================================================
+
+_MODEL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yaeyama_cancel_model.json")
+
+
+def _load_cancel_model():
+    """yaeyama_cancel_model.json を読み込む（なければ None）"""
+    try:
+        with open(_MODEL_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("  [警告] yaeyama_cancel_model.json が見つかりません（欠航予測スキップ）")
+        return None
+    except Exception as e:
+        print(f"  [警告] モデル読み込みエラー: {e}")
+        return None
+
+
+def _predict_prob(model_params, wave, swell, wind, swell_period=None):
+    """
+    モデルタイプに応じて欠航確率（0〜1）を返す。
+    model_params が None、または必要データが欠損の場合は None を返す。
+    """
+    if not model_params:
+        return None
+    if wave is None or wind is None:
+        return None
+
+    mtype = model_params.get("model_type", "logistic")
+
+    if mtype == "rule":
+        p = model_params
+        score = 0.0
+        if wave >= p["wave_thr_high"]:
+            score = p["prob_wave_high"]
+        elif wave >= p["wave_thr_mid"]:
+            score = p["prob_wave_mid"]
+        elif wave >= p["wave_thr_mid"] * 0.8:
+            score = p["prob_wave_mid"] * 0.5
+        if wind >= p["wind_thr"]:
+            score = min(score + p["prob_wind_add"], 0.95)
+        return round(score, 3)
+
+    else:  # logistic
+        m = model_params
+        feat_vals = {
+            "wave_max": wave, "swell_max": swell,
+            "wind_max": wind, "swell_period_max": swell_period,
+        }
+        try:
+            vals = [feat_vals[f] for f in m["features"]]
+            if any(v is None for v in vals):
+                return None
+            x_s = [(v - mu) / sc
+                   for v, mu, sc in zip(vals, m["scaler_mean"], m["scaler_scale"])]
+            z = m["intercept"] + sum(c * x for c, x in zip(m["coef"], x_s))
+            return round(1.0 / (1.0 + math.exp(-z)), 3)
+        except Exception:
+            return None
+
+
+def _risk_label(prob):
+    """欠航確率 → リスク絵文字＋%テキスト"""
+    if prob is None:  return "— (モデルなし)"
+    if prob >= 0.70:  return f"🔴 {prob:.0%}"
+    if prob >= 0.40:  return f"🟡 {prob:.0%}"
+    return             f"🟢 {prob:.0%}"
+
+
+# ============================================================
+# 4. Slack 通知
+# ============================================================
+
+def _send_slack_summary(today_str, route_data_list, models):
+    """
+    route_data_list: [(route_id, op_dict, weather_dict), ...]
+    models: yaeyama_cancel_model.json の内容（または None）
+    """
+    webhook = os.environ.get("SLACK_WEBHOOK_URL_YAEYAMA")
+    if not webhook:
+        print("  [スキップ] SLACK_WEBHOOK_URL_YAEYAMA 未設定")
+        return
+
+    lines = [f"*🚢 八重山航路ログ {today_str}*"]
+    lines.append("─" * 28)
+
+    # ── 本日運航状況 ────────────────────────────────────
+    for route_id, op, w in route_data_list:
+        cfg   = ROUTE_CONFIGS[route_id]
+        bins  = op["hs_bins"]
+        n_op  = sum(1 for b in bins if b["status"] == "◯")
+        n_all = len(bins)
+        status = f"HS {n_op}/{n_all}便" if n_all > 0 else "情報なし"
+
+        parts = [f"• *{cfg['name']}*: {status}"]
+        if route_id == "route6":
+            fop = op.get("ferry_operated")
+            parts.append("貨客船:運航" if fop == 1 else ("貨客船:欠航" if fop == 0 else ""))
+        wave = w.get("today_max_wave")
+        wind = w.get("today_max_wind")
+        if wave: parts.append(f"波{wave}m")
+        if wind: parts.append(f"風{wind}m/s")
+        lines.append("  ".join(p for p in parts if p))
+
+    # ── 明日の欠航リスク ──────────────────────────────
+    lines.append("")
+    lines.append("*📊 明日の欠航リスク予測*")
+    lines.append("─" * 28)
+
+    for route_id, _op, w in route_data_list:
+        cfg      = ROUTE_CONFIGS[route_id]
+        m_hs     = (models or {}).get(route_id, {}).get("hs") if models else None
+        tmr_wave = w.get("tmr_max_wave")
+        tmr_swell = w.get("tmr_max_swell")
+        tmr_wind = w.get("tmr_max_wind")
+        prob     = _predict_prob(m_hs, tmr_wave, tmr_swell, tmr_wind)
+        wave_str = f"波:{tmr_wave}m" if tmr_wave else "波:—"
+        wind_str = f"風:{tmr_wind}m/s" if tmr_wind else "風:—"
+        lines.append(f"• *{cfg['name']}*: {_risk_label(prob)}  ({wave_str} {wind_str})")
+
+    payload = {"text": "\n".join(lines)}
+    try:
+        resp = requests.post(webhook, json=payload, timeout=10)
+        resp.raise_for_status()
+        print("  ✅ Slack通知送信完了")
+    except Exception as e:
+        print(f"  [エラー] Slack送信失敗: {e}")
+
+
+# ============================================================
+# 5. Google Sheets への書き込み
 # ============================================================
 
 def log_daily_records():
@@ -457,8 +588,12 @@ def log_daily_records():
     # 安栄観光HP 一括取得
     all_routes = get_all_routes_operation_status()
 
+    # モデル読み込み（欠航確率計算用）
+    cancel_models = _load_cancel_model()
+
     # 全7航路の行を構築（記録済みルートはスキップ）
     rows = []
+    route_data_list = []   # Slack通知用 [(route_id, op, weather), ...]
     for route_id, cfg in ROUTE_CONFIGS.items():
         if route_id in existing_routes:
             print(f"  [スキップ] {route_id} は記録済み")
@@ -475,6 +610,7 @@ def log_daily_records():
         hs_w_cancel    = 1 if has_cancel and op["hs_cancel_reason"] == "weather" else 0
         ferry_w_cancel = 1 if (op["ferry_operated"] == 0 and op["ferry_cancel_reason"] == "weather") else 0
 
+        route_data_list.append((route_id, op, weather))
         rows.append([
             today_str,
             now.strftime("%Y-%m-%d %H:%M"),
@@ -508,6 +644,10 @@ def log_daily_records():
         print(f"  ✅ Sheets記録完了: {today_str} / {len(rows)}航路")
     except Exception as e:
         print(f"  [エラー] Sheets書き込み失敗: {e}")
+
+    # Slack通知（運航状況 + 明日の欠航リスク）
+    if route_data_list:
+        _send_slack_summary(today_str, route_data_list, cancel_models)
 
 
 # ============================================================
