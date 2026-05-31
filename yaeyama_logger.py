@@ -480,7 +480,7 @@ def log_daily_records():
 
     if not sheets_id or not svc_json:
         print("  [スキップ] 環境変数未設定（GOOGLE_SHEETS_ID_YAEYAMA / GOOGLE_SERVICE_ACCOUNT_JSON）")
-        return
+        return None, None
 
     try:
         import gspread
@@ -502,7 +502,7 @@ def log_daily_records():
 
     except Exception as e:
         print(f"  [エラー] Sheets接続失敗: {e}")
-        return
+        return None, None
 
     now = datetime.now(JST)
     today_str = now.strftime("%Y-%m-%d")
@@ -517,7 +517,7 @@ def log_daily_records():
                 existing_routes.add(r)
         if len(existing_routes) >= 7:
             print(f"  [スキップ] {today_str} の全航路記録はすでに存在します")
-            return
+            return [], _load_cancel_model()
         if existing_routes:
             print(f"  [部分スキップ] 記録済み: {sorted(existing_routes)} / 未記録を追加します")
     except Exception as e:
@@ -585,13 +585,7 @@ def log_daily_records():
     except Exception as e:
         print(f"  [エラー] Sheets書き込み失敗: {e}")
 
-    # Instagram投稿（欠航リスク予報カルーセル）
-    if route_data_list:
-        try:
-            from yaeyama_publisher import run_yaeyama_publisher
-            run_yaeyama_publisher(route_data_list, cancel_models)
-        except Exception as e:
-            print(f"  [警告] Instagram投稿エラー: {e}")
+    return route_data_list, cancel_models
 
 
 # ============================================================
@@ -602,5 +596,17 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"Yaeyama All-Routes Logger: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
     print("=" * 50)
-    log_daily_records()
+
+    # Sheets記録（重複スキップ込み）
+    result = log_daily_records()
+    route_data_list = result[0] if result else []
+    cancel_models   = result[1] if result else None
+
+    # Instagram投稿（Sheets記録の成否・重複有無に関わらず毎回実行）
+    try:
+        from yaeyama_publisher import run_yaeyama_publisher
+        run_yaeyama_publisher(route_data_list, cancel_models)
+    except Exception as e:
+        print(f"  [警告] Instagram投稿エラー: {e}")
+
     print("\n完了。")
