@@ -254,7 +254,7 @@ def _fetch_forecast_batched(lats, lons, days=7, timeout=30, max_retries=3):
 def _pct(prob):
     if prob is None:
         return None
-    return int(round(prob * 100))
+    return min(int(round(prob * 100)), 99)  # cap at 99%（確率予測に100%はない）
 
 
 def _max_pct(probs_by_route, day_indices):
@@ -529,88 +529,168 @@ def make_image_longterm(probs_by_route, output_path):
 
 
 def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
-    """画像③: 予報根拠データ（5航路の明日気象数値）"""
-    now = datetime.now(JST)
+    """
+    画像③: 予報根拠データ
+    - セクションA: 明日 + 明後日 の5航路 × 波高/うねり/風速（欠航リスク%は表示しない）
+    - セクションB: 3〜7日先の5航路 × 波高
+    """
+    now      = datetime.now(JST)
+    DAY_JA   = ["月","火","水","木","金","土","日"]
+    DAY_EN   = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    MON_EN   = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    tmr      = now + timedelta(days=1)
+    dayafter = now + timedelta(days=2)
+
     img  = Image.new("RGB", IMG_SIZE, color=_hex_to_rgb("#0A1628"))
     draw = ImageDraw.Draw(img)
     f    = _fonts()
 
-    tmr = now + timedelta(days=1)
-    DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-    MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    tmr_ja = f"明日 {tmr.month}/{tmr.day} の気象予測"
-    tmr_en = f"Tomorrow  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})  /  Forecast Data"
+    def _fmt(v): return f"{v:.1f}" if v is not None else "—"
 
-    draw.text((540, 52),  "予報根拠データ  /  Forecast Data",
+    # ── タイトル ──
+    draw.text((540, 50), "予報根拠データ  /  Forecast Data",
               font=f["title"], fill="white", anchor="mm")
-    draw.text((540, 90),  f"{tmr_ja}   |   {tmr_en}",
-              font=f["head_en"], fill=(255,255,255,175), anchor="mm")
-    draw.line([(60, 112), (1020, 112)], fill="#334E7A", width=2)
+    draw.text((540, 86), "気象データに基づくリスク根拠  /  Weather basis for cancellation risk forecast",
+              font=_load_font(FONT_REGULAR, 17), fill=(255, 255, 255, 155), anchor="mm")
+    draw.line([(40, 106), (1040, 106)], fill="#334E7A", width=2)
 
-    # ヘッダー行（日英バイリンガル）
-    HDR_Y = 122
-    draw.rectangle([(60, HDR_Y), (1020, HDR_Y + 54)], fill="#1A3057")
-    for x, ja, en in [
-        (64,  "航路",      "Route"),
-        (380, "波高 (m)",  "Wave Ht."),
-        (570, "うねり (m)","Swell Ht."),
-        (760, "風速 (m/s)","Wind Spd."),
-        (950, "欠航リスク","Cancel Risk"),
+    # ── セクションA: 明日 & 明後日（横並び） ──
+    RX = 40; RW = 130; CW = 141; SEP = 22
+    DAY0_X = RX + RW           # 170
+    DAY1_X = DAY0_X + 3 * CW + SEP  # 615
+
+    # 日付セクションヘッダー (y=110〜152)
+    HDR_DT_Y = 110; HDR_DT_H = 42
+    for xi, dt, ja, en in [
+        (DAY0_X, tmr,      "明日",   "Tomorrow"),
+        (DAY1_X, dayafter, "明後日", "Day After"),
     ]:
-        draw.text((x, HDR_Y + 18), ja, font=f["xs"], fill="#7EB3F5", anchor="lm")
-        draw.text((x, HDR_Y + 38), en, font=_load_font(FONT_REGULAR, 15), fill="#5585B5", anchor="lm")
+        cx = xi + int(1.5 * CW)
+        draw.rectangle([(xi, HDR_DT_Y), (xi + 3 * CW, HDR_DT_Y + HDR_DT_H)], fill="#1A3057")
+        draw.text((cx, HDR_DT_Y + 14),
+                  f"{ja}  {dt.month}/{dt.day}（{DAY_JA[dt.weekday()]}）",
+                  font=_load_font(FONT_BOLD, 21), fill="#7EB3F5", anchor="mm")
+        draw.text((cx, HDR_DT_Y + 32),
+                  f"{en}  {MON_EN[dt.month-1]} {dt.day} ({DAY_EN[dt.weekday()]})",
+                  font=_load_font(FONT_REGULAR, 15), fill="#5585B5", anchor="mm")
 
-    ROW_TOP = HDR_Y + 62
-    ROW_H   = 100
+    # 列ヘッダー (y=152〜194)
+    HDR_COL_Y = HDR_DT_Y + HDR_DT_H; HDR_COL_H = 42
+    draw.rectangle([(RX, HDR_COL_Y), (1040, HDR_COL_Y + HDR_COL_H)], fill="#102035")
+    draw.text((RX + RW // 2, HDR_COL_Y + HDR_COL_H // 2), "航路\nRoute",
+              font=_load_font(FONT_REGULAR, 14), fill="#7EB3F5", anchor="mm")
+    for base_x in [DAY0_X, DAY1_X]:
+        for ci, (ja, en) in enumerate([
+            ("波高 (m)", "Wave Ht."),
+            ("うねり (m)", "Swell Ht."),
+            ("風速 (m/s)", "Wind Spd."),
+        ]):
+            cx = base_x + ci * CW + CW // 2
+            draw.text((cx, HDR_COL_Y + 14), ja,
+                      font=_load_font(FONT_REGULAR, 15), fill="#7EB3F5", anchor="mm")
+            draw.text((cx, HDR_COL_Y + 30), en,
+                      font=_load_font(FONT_REGULAR, 13), fill="#5585B5", anchor="mm")
+
+    # データ行 (y=194〜 )
+    ROW_A_Y = HDR_COL_Y + HDR_COL_H; ROW_A_H = 84
 
     for idx, rid in enumerate(MODEL_ROUTES):
-        info = ROUTE_INFO[rid]
-        days7 = batched_forecast.get((info["lat"], info["lon"]), [{}] * 7)
-        d     = days7[1] if len(days7) > 1 else {}  # day 1 = 明日
-        wave  = d.get("max_wave")
-        swell = d.get("max_swell")
-        wind  = d.get("max_wind")
-
-        probs = probs_by_route.get(rid, [None] * 8)
-        pct1  = _pct(probs[1])
-
-        row_y = ROW_TOP + idx * ROW_H
-        cy    = row_y + ROW_H // 2
+        info  = ROUTE_INFO[rid]
+        days8 = batched_forecast.get((info["lat"], info["lon"]), [{}] * 8)
+        row_y = ROW_A_Y + idx * ROW_A_H
+        cy    = row_y + ROW_A_H // 2
 
         if idx % 2 == 1:
-            draw.rectangle([(60, row_y), (1020, row_y + ROW_H)], fill=(255,255,255,12))
-        draw.line([(60, row_y), (1020, row_y)], fill=(255,255,255,25), width=1)
+            draw.rectangle([(RX, row_y), (1040, row_y + ROW_A_H)],
+                           fill=(255, 255, 255, 10))
+        draw.line([(RX, row_y), (1040, row_y)],
+                  fill=(255, 255, 255, 22), width=1)
 
-        # 航路名
-        draw.text((64, cy - 10), info["short"],
-                  font=_load_font(FONT_BOLD, 24), fill="#BBDEFB", anchor="lm")
+        draw.text((RX + RW // 2, cy - 8), info["short"],
+                  font=_load_font(FONT_BOLD, 22), fill="#BBDEFB", anchor="mm")
+        draw.text((RX + RW // 2, cy + 14), info["en"],
+                  font=_load_font(FONT_REGULAR, 15), fill="#5585B5", anchor="mm")
 
-        # 数値
-        def _fmt(v): return f"{v:.1f}" if v is not None else "—"
-        for x, val, thr in [(380, wave, 2.5), (570, swell, 2.0), (760, wind, 12.0)]:
-            col = "#FF8A80" if (val is not None and val >= thr) else "#E0E0E0"
-            draw.text((x, cy), _fmt(val), font=f["val_bold"], fill=col, anchor="lm")
+        for delta, base_x in [(1, DAY0_X), (2, DAY1_X)]:
+            d    = days8[delta] if delta < len(days8) else {}
+            vals = [d.get("max_wave"), d.get("max_swell"), d.get("max_wind")]
+            thrs = [2.5, 2.0, 12.0]
+            for ci, (val, thr) in enumerate(zip(vals, thrs)):
+                cx  = base_x + ci * CW + CW // 2
+                col = "#FF8A80" if (val is not None and val >= thr) else "#E0E0E0"
+                draw.text((cx, cy), _fmt(val),
+                          font=_load_font(FONT_BOLD, 24), fill=col, anchor="mm")
 
-        # リスク %
-        if pct1 is not None:
-            draw.text((950, cy), f"{pct1}%",
-                      font=_load_font(FONT_BOLD, 28), fill=_get_risk_text_color(pct1), anchor="lm")
-        else:
-            draw.text((950, cy), "—", font=f["val_bold"], fill=(150,150,150), anchor="lm")
+    SEC_A_BTM = ROW_A_Y + 5 * ROW_A_H   # 194 + 420 = 614
+    draw.line([(RX, SEC_A_BTM), (1040, SEC_A_BTM)],
+              fill=(255, 255, 255, 28), width=1)
 
-    SRC_Y = ROW_TOP + 5 * ROW_H + 20
-    draw.line([(60, SRC_Y), (1020, SRC_Y)], fill="#334E7A", width=1)
-    draw.rectangle([(60, SRC_Y + 8), (1020, SRC_Y + 52)], fill="#1A3057")
-    draw.text((80, SRC_Y + 30), "【情報源】  Open-Meteo Marine API  /  安栄観光 aneikankou.co.jp",
+    # ── セクションB: 3〜7日先 波高 ──
+    SEC_B_Y = SEC_A_BTM + 8; SEC_B_H = 36
+    draw.rectangle([(RX, SEC_B_Y), (1040, SEC_B_Y + SEC_B_H)], fill="#142240")
+    draw.text((540, SEC_B_Y + SEC_B_H // 2),
+              "3〜7日先の波高  /  Wave Height Outlook (3-7 days ahead, m)",
+              font=_load_font(FONT_BOLD, 18), fill="#7EB3F5", anchor="mm")
+
+    HDR_B_Y = SEC_B_Y + SEC_B_H; HDR_B_H = 38
+    draw.rectangle([(RX, HDR_B_Y), (1040, HDR_B_Y + HDR_B_H)], fill="#0F1C33")
+    RW2 = 130; CW_B = (1000 - RW2) // 5   # 174px
+    DAY_COLS = [now + timedelta(days=d) for d in range(3, 8)]
+    for ci, dt in enumerate(DAY_COLS):
+        cx = RX + RW2 + ci * CW_B + CW_B // 2
+        draw.text((cx, HDR_B_Y + 13),
+                  f"{dt.month}/{dt.day}（{DAY_JA[dt.weekday()]}）",
+                  font=_load_font(FONT_BOLD, 17), fill="#7EB3F5", anchor="mm")
+        draw.text((cx, HDR_B_Y + 29),
+                  f"{MON_EN[dt.month-1]} {dt.day}",
+                  font=_load_font(FONT_REGULAR, 13), fill="#5585B5", anchor="mm")
+
+    ROW_B_Y = HDR_B_Y + HDR_B_H; ROW_B_H = 50
+
+    for idx, rid in enumerate(MODEL_ROUTES):
+        info  = ROUTE_INFO[rid]
+        days8 = batched_forecast.get((info["lat"], info["lon"]), [{}] * 8)
+        row_y = ROW_B_Y + idx * ROW_B_H
+        cy    = row_y + ROW_B_H // 2
+
+        if idx % 2 == 1:
+            draw.rectangle([(RX, row_y), (1040, row_y + ROW_B_H)],
+                           fill=(255, 255, 255, 8))
+        draw.line([(RX, row_y), (1040, row_y)],
+                  fill=(255, 255, 255, 18), width=1)
+
+        draw.text((RX + RW2 // 2, cy), info["short"],
+                  font=_load_font(FONT_MEDIUM, 19), fill="#BBDEFB", anchor="mm")
+
+        for ci, delta in enumerate(range(3, 8)):
+            d    = days8[delta] if delta < len(days8) else {}
+            wave = d.get("max_wave")
+            cx   = RX + RW2 + ci * CW_B + CW_B // 2
+            col  = "#FF8A80" if (wave is not None and wave >= 2.5) else "#E0E0E0"
+            draw.text((cx, cy), _fmt(wave),
+                      font=_load_font(FONT_BOLD, 20), fill=col, anchor="mm")
+
+    SEC_B_BTM = ROW_B_Y + 5 * ROW_B_H
+    draw.line([(RX, SEC_B_BTM), (1040, SEC_B_BTM)],
+              fill=(255, 255, 255, 22), width=1)
+
+    # 情報源バー
+    SRC_Y = SEC_B_BTM + 8
+    draw.rectangle([(RX, SRC_Y), (1040, SRC_Y + 38)], fill="#1A3057")
+    draw.text((60, SRC_Y + 19),
+              "【情報源】  Open-Meteo Marine API  /  安栄観光 aneikankou.co.jp",
               font=f["xs"], fill="#7EB3F5", anchor="lm")
 
-    draw.line([(60, 990), (1020, 990)], fill="#334E7A", width=1)
-    draw.text((540, 1010), "※欠航判断は安栄観光が行います。本データはAI予測の参考値です。",
-              font=f["xs"], fill="#546E7A", anchor="mm")
-    draw.text((540, 1032), "*Cancellation is determined by Anei Kanko. AI estimates for reference only.",
-              font=f["xs"], fill="#455A64", anchor="mm")
-    draw.text((540, 1056), f"生成: {now.strftime('%Y-%m-%d %H:%M')} JST",
-              font=f["xs"], fill="#37474F", anchor="mm")
+    FOOT_Y = SRC_Y + 48
+    draw.text((540, FOOT_Y),
+              "※欠航判断は安栄観光が行います。本データはAI予測の参考値です。",
+              font=_load_font(FONT_REGULAR, 14), fill="#546E7A", anchor="mm")
+    draw.text((540, FOOT_Y + 18),
+              "*Cancellation determined by Anei Kanko. Weather data for reference only.",
+              font=_load_font(FONT_REGULAR, 13), fill="#455A64", anchor="mm")
+    draw.text((540, FOOT_Y + 36),
+              f"生成: {now.strftime('%Y-%m-%d %H:%M')} JST",
+              font=_load_font(FONT_REGULAR, 13), fill="#37474F", anchor="mm")
 
     img.save(output_path)
     print(f"  画像③保存: {output_path}")
