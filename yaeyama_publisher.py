@@ -32,11 +32,11 @@ JST = ZoneInfo("Asia/Tokyo")
 MODEL_ROUTES = ["route1", "route3", "route5", "route6", "route7"]
 
 ROUTE_INFO = {
-    "route1": {"name": "大原（西表島東）", "short": "大原",  "lat": 24.28,      "lon": 124.13},
-    "route3": {"name": "竹富島",           "short": "竹富島", "lat": 24.36,     "lon": 124.10},
-    "route5": {"name": "上原（西表島北）", "short": "上原",  "lat": 24.40,      "lon": 123.86},
-    "route6": {"name": "波照間島",         "short": "波照間", "lat": 24.165974, "lon": 123.836266},
-    "route7": {"name": "鳩間島",           "short": "鳩間島", "lat": 24.47,     "lon": 123.80},
+    "route1": {"name": "大原（西表島東）", "short": "大原",  "en": "Ohara",    "lat": 24.28,      "lon": 124.13},
+    "route3": {"name": "竹富島",           "short": "竹富島", "en": "Taketomi", "lat": 24.36,      "lon": 124.10},
+    "route5": {"name": "上原（西表島北）", "short": "上原",  "en": "Uehara",   "lat": 24.40,      "lon": 123.86},
+    "route6": {"name": "波照間島",         "short": "波照間", "en": "Hateruma", "lat": 24.165974,  "lon": 123.836266},
+    "route7": {"name": "鳩間島",           "short": "鳩間島", "en": "Hatoma",   "lat": 24.47,      "lon": 123.80},
 }
 
 IMG_SIZE = (1080, 1080)
@@ -282,27 +282,27 @@ def _build_forecast_data(route_data_list, cancel_models):
             if rid in MODEL_ROUTES:
                 day1_weather[rid] = w
 
-    # Day0, 2〜6: batched fetch
+    # Day0, 2〜7: batched fetch（6/7まで含める = 8日分）
     lats = [ROUTE_INFO[rid]["lat"] for rid in MODEL_ROUTES]
     lons = [ROUTE_INFO[rid]["lon"] for rid in MODEL_ROUTES]
-    print("  [API] 7日間予報 batched取得中（5航路×1リクエスト）...")
-    batched = _fetch_forecast_batched(lats, lons)
+    print("  [API] 8日間予報 batched取得中（5航路×1リクエスト）...")
+    batched = _fetch_forecast_batched(lats, lons, days=8)
 
     result = {}
     for i_rid, rid in enumerate(MODEL_ROUTES):
-        info = ROUTE_INFO[rid]
-        m_hs = (cancel_models or {}).get(rid, {}).get("hs")
-        days7 = batched.get((info["lat"], info["lon"]), [{}] * 7)
+        info  = ROUTE_INFO[rid]
+        m_hs  = (cancel_models or {}).get(rid, {}).get("hs")
+        days8 = batched.get((info["lat"], info["lon"]), [{}] * 8)
         probs = []
-        for delta in range(7):
+        for delta in range(8):
             if delta == 1 and rid in day1_weather:
                 # Day1: ロガー取得済みデータ優先
-                w    = day1_weather[rid]
+                w     = day1_weather[rid]
                 wave  = w.get("tmr_max_wave")
                 swell = w.get("tmr_max_swell")
                 wind  = w.get("tmr_max_wind")
             else:
-                d    = days7[delta] if delta < len(days7) else {}
+                d     = days8[delta] if delta < len(days8) else {}
                 wave  = d.get("max_wave")
                 swell = d.get("max_swell")
                 wind  = d.get("max_wind")
@@ -351,31 +351,37 @@ def make_image_short(probs_by_route, output_path):
     draw.line([(60, 110), (1020, 110)], fill=(255,255,255,80), width=1)
 
     # 日付ヘッダー
-    DAY_JA = ["（月）","（火）","（水）","（木）","（金）","（土）","（日）"]
+    DAY_JA  = ["（月）","（火）","（水）","（木）","（金）","（土）","（日）"]
+    DAY_EN  = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    MON_EN  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     tmr      = now + timedelta(days=1)
     dayafter = now + timedelta(days=2)
-    tmr_label      = f"{tmr.month}/{tmr.day}{DAY_JA[tmr.weekday()]}"
-    dayafter_label  = f"{dayafter.month}/{dayafter.day}{DAY_JA[dayafter.weekday()]}"
+    tmr_date_ja      = f"{tmr.month}/{tmr.day}{DAY_JA[tmr.weekday()]}"
+    dayafter_date_ja = f"{dayafter.month}/{dayafter.day}{DAY_JA[dayafter.weekday()]}"
+    tmr_date_en      = f"{MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})"
+    dayafter_date_en = f"{MON_EN[dayafter.month-1]} {dayafter.day} ({DAY_EN[dayafter.weekday()]})"
 
     COL_NAME = 190
     COL_TMR  = 540
     COL_DAY2 = 875
-    HDR_Y    = 140
+    HDR_Y    = 132
 
-    draw.text((COL_TMR,  HDR_Y),      "明日",          font=f["head"],    fill="white", anchor="mm")
-    draw.text((COL_TMR,  HDR_Y + 34), tmr_label,       font=f["head_en"], fill=(255,255,255,200), anchor="mm")
-    draw.text((COL_DAY2, HDR_Y),      "明後日",        font=f["head"],    fill="white", anchor="mm")
-    draw.text((COL_DAY2, HDR_Y + 34), dayafter_label,  font=f["head_en"], fill=(255,255,255,200), anchor="mm")
+    draw.text((COL_TMR,  HDR_Y),      "明日  /  Tomorrow",  font=f["head"],    fill="white", anchor="mm")
+    draw.text((COL_TMR,  HDR_Y + 30), tmr_date_ja,          font=f["head_en"], fill=(255,255,255,200), anchor="mm")
+    draw.text((COL_TMR,  HDR_Y + 50), tmr_date_en,          font=f["head_en"], fill=(255,255,255,160), anchor="mm")
+    draw.text((COL_DAY2, HDR_Y),      "明後日  /  Day After",font=f["head"],    fill="white", anchor="mm")
+    draw.text((COL_DAY2, HDR_Y + 30), dayafter_date_ja,     font=f["head_en"], fill=(255,255,255,200), anchor="mm")
+    draw.text((COL_DAY2, HDR_Y + 50), dayafter_date_en,     font=f["head_en"], fill=(255,255,255,160), anchor="mm")
 
     draw.line([(360, 118), (360, 960)], fill=(255,255,255,50), width=1)
     draw.line([(710, 118), (710, 960)], fill=(255,255,255,50), width=1)
 
     # 航路行（5行）
-    ROW_TOP = 200
+    ROW_TOP = 210
     ROW_H   = 148
     for idx, rid in enumerate(MODEL_ROUTES):
         info  = ROUTE_INFO[rid]
-        probs = probs_by_route.get(rid, [None] * 7)
+        probs = probs_by_route.get(rid, [None] * 8)
         pct1  = _pct(probs[1])
         pct2  = _pct(probs[2])
         row_y = ROW_TOP + idx * ROW_H
@@ -385,6 +391,8 @@ def make_image_short(probs_by_route, output_path):
 
         draw.text((COL_NAME, cy - 12), info["short"],
                   font=f["route"], fill="white", anchor="mm")
+        draw.text((COL_NAME, cy + 18), info["en"],
+                  font=_load_font(FONT_REGULAR, 17), fill=(255,255,255,150), anchor="mm")
 
         for col_x, pct in [(COL_TMR, pct1), (COL_DAY2, pct2)]:
             if pct is not None:
@@ -408,74 +416,113 @@ def make_image_short(probs_by_route, output_path):
 
 
 def make_image_longterm(probs_by_route, output_path):
-    """画像②: 長期予報（3〜7日先）"""
-    now = datetime.now(JST)
+    """
+    画像②: 長期予報（3〜7日先）
+    レイアウト: 5航路（行）× 5日（列）のテーブル形式
+    """
+    now    = datetime.now(JST)
     DAY_JA = ["月","火","水","木","金","土","日"]
-    lt_days = []
-    for delta in range(3, 8):
-        d   = now + timedelta(days=delta)
-        pct = _max_pct(probs_by_route, [delta]) if delta < 7 else None
-        lt_days.append({
-            "label": f"{d.month}/{d.day}({DAY_JA[d.weekday()]})",
-            "pct":   pct,
-        })
+    DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
-    max_risk = max((d["pct"] for d in lt_days if d["pct"] is not None), default=0)
+    # 3〜7日先（delta 3,4,5,6,7）の日付・リスク
+    lt_deltas = list(range(3, 8))
+    lt_dates  = [now + timedelta(days=d) for d in lt_deltas]
+
+    # 全セルのリスク値（5routes × 5days）
+    all_pcts = []
+    for rid in MODEL_ROUTES:
+        probs = probs_by_route.get(rid, [None] * 8)
+        for delta in lt_deltas:
+            p = _pct(probs[delta]) if delta < len(probs) else None
+            if p is not None:
+                all_pcts.append(p)
+
+    max_risk = max(all_pcts) if all_pcts else 0
     img  = Image.new("RGB", IMG_SIZE, color=_hex_to_rgb(_get_bg_color(max_risk)))
     draw = ImageDraw.Draw(img)
     f    = _fonts()
 
+    # ── タイトル ──
     draw.text((540, 44),  "長期予報（3〜7日先）",
               font=f["title"], fill="white", anchor="mm")
-    draw.text((540, 88),  "Yaeyama Routes  /  Long-term Risk Forecast  (3-7 days ahead)",
+    draw.text((540, 86),  "Yaeyama Routes  /  Long-term Cancellation Risk  (3-7 days ahead)",
               font=f["title_en"], fill=(255,255,255,200), anchor="mm")
-    draw.line([(60, 112), (1020, 112)], fill=(255,255,255,80), width=1)
+    draw.line([(40, 108), (1040, 108)], fill=(255,255,255,80), width=1)
 
-    if max_risk >= 30:
-        risk_days  = [d["label"] for d in lt_days if d["pct"] is not None and d["pct"] >= 30]
-        period_str = "  ".join(risk_days) if risk_days else "—"
-        draw.text((540, 162), "注意が必要な期間  /  Risk Period",
-                  font=f["head"], fill=(255,255,255,200), anchor="mm")
-        draw.text((540, 238), period_str,
-                  font=_load_font(FONT_BOLD, 26), fill="white", anchor="mm")
-        draw.text((540, 296), f"最大欠航リスク  Max Risk:  {max_risk}%",
-                  font=f["head_en"], fill=(255,255,255,190), anchor="mm")
-    else:
-        draw.text((540, 230), "懸念なし  /  No Significant Risk",
-                  font=f["head"], fill="white", anchor="mm")
+    # ── テーブルレイアウト ──
+    # 列: 1ラベル列(220px) + 5日列(156px×5)
+    # 行: 1ヘッダー行(72px) + 5航路行(150px×5)
+    TBL_X    = 40          # テーブル左端
+    TBL_W    = 1000        # テーブル幅
+    LABEL_W  = 220         # 航路名列の幅
+    COL_W    = (TBL_W - LABEL_W) // 5   # 156px
+    HDR_Y    = 118         # ヘッダー行トップ
+    HDR_H    = 72
+    ROW_Y0   = HDR_Y + HDR_H  # データ行開始 y = 190
+    ROW_H    = 150
 
-    draw.line([(60, 324), (1020, 324)], fill=(255,255,255,60), width=1)
-    draw.text((540, 350), "各日の最大欠航リスク  /  Max Daily Risk (All Routes)",
-              font=f["head_en"], fill=(255,255,255,180), anchor="mm")
+    # ヘッダー行背景
+    draw.rectangle([(TBL_X, HDR_Y), (TBL_X + TBL_W, HDR_Y + HDR_H)],
+                   fill=(0, 0, 0, 70))
 
-    BAR_TOP  = 390
-    BAR_H    = 42
-    ROW_SP   = 100
-    BAR_LEFT = 200
-    BAR_W    = 680
-    PCT_X    = BAR_LEFT + BAR_W + 20
+    # ── 列ヘッダー（日付）──
+    for ci, dt in enumerate(lt_dates):
+        cx = TBL_X + LABEL_W + ci * COL_W + COL_W // 2
+        cy = HDR_Y + HDR_H // 2
+        date_ja = f"{dt.month}/{dt.day}({DAY_JA[dt.weekday()]})"
+        date_en = f"{MON_EN[dt.month-1]} {dt.day} ({DAY_EN[dt.weekday()]})"
+        draw.text((cx, cy - 10), date_ja, font=_load_font(FONT_BOLD, 22),
+                  fill="white", anchor="mm")
+        draw.text((cx, cy + 16), date_en, font=_load_font(FONT_REGULAR, 16),
+                  fill=(255,255,255,170), anchor="mm")
 
-    for i, d in enumerate(lt_days):
-        y   = BAR_TOP + i * ROW_SP
-        pct = d["pct"] if d["pct"] is not None else 0
-        draw.text((BAR_LEFT - 10, y + BAR_H // 2), d["label"],
-                  font=f["bar"], fill="white", anchor="rm")
-        draw.rectangle([(BAR_LEFT, y), (BAR_LEFT + BAR_W, y + BAR_H)], fill=(0,0,0,55))
-        if pct > 0:
-            bar_color = tuple(min(255, int(c * 1.35)) for c in _hex_to_rgb(_get_bg_color(pct)))
-            draw.rectangle([(BAR_LEFT, y), (BAR_LEFT + int(BAR_W * pct / 100), y + BAR_H)],
-                           fill=bar_color)
-        pct_str = f"{pct}%" if d["pct"] is not None else "—"
-        draw.text((PCT_X, y + BAR_H // 2), pct_str,
-                  font=f["bar"], fill=_get_risk_text_color(pct), anchor="lm")
+    # ── 縦罫線 ──
+    for ci in range(6):
+        lx = TBL_X + LABEL_W + ci * COL_W
+        draw.line([(lx, HDR_Y), (lx, ROW_Y0 + 5 * ROW_H)],
+                  fill=(255,255,255,45), width=1)
+    # ラベル列右端罫線
+    draw.line([(TBL_X + LABEL_W, HDR_Y), (TBL_X + LABEL_W, ROW_Y0 + 5 * ROW_H)],
+              fill=(255,255,255,70), width=1)
 
-    draw.line([(60, 920), (1020, 920)], fill=(255,255,255,50), width=1)
-    draw.text((540, 944), "対象航路: 大原・竹富島・上原・波照間・鳩間  /  Route1, 3, 5, 6, 7",
-              font=f["xs"], fill=(255,255,255,155), anchor="mm")
-    draw.text((540, 966), "※AI予測・参考値。公式確認は安栄観光HPまで。",
-              font=f["xs"], fill=(255,255,255,130), anchor="mm")
-    draw.text((540, 986), "*AI-based estimates. Check Anei Kanko official for cancellations.",
-              font=f["xs"], fill=(255,255,255,100), anchor="mm")
+    # ── 航路行 ──
+    for ri, rid in enumerate(MODEL_ROUTES):
+        info  = ROUTE_INFO[rid]
+        probs = probs_by_route.get(rid, [None] * 8)
+        row_y = ROW_Y0 + ri * ROW_H
+        cy    = row_y + ROW_H // 2
+
+        # 行区切り
+        draw.line([(TBL_X, row_y), (TBL_X + TBL_W, row_y)],
+                  fill=(255,255,255,40), width=1)
+
+        # 航路名
+        draw.text((TBL_X + LABEL_W // 2, cy - 12), info["short"],
+                  font=f["route"], fill="white", anchor="mm")
+        draw.text((TBL_X + LABEL_W // 2, cy + 18), info["en"],
+                  font=_load_font(FONT_REGULAR, 17), fill=(255,255,255,150), anchor="mm")
+
+        # セル（日付ごとの%）
+        for ci, delta in enumerate(lt_deltas):
+            pct = _pct(probs[delta]) if delta < len(probs) else None
+            cx  = TBL_X + LABEL_W + ci * COL_W + COL_W // 2
+            if pct is not None:
+                draw.text((cx, cy), f"{pct}%",
+                          font=_load_font(FONT_BOLD, 38), fill=_get_risk_text_color(pct), anchor="mm")
+            else:
+                draw.text((cx, cy), "—",
+                          font=_load_font(FONT_BOLD, 30), fill=(180,180,180), anchor="mm")
+
+    # 最終行下罫線
+    draw.line([(TBL_X, ROW_Y0 + 5 * ROW_H), (TBL_X + TBL_W, ROW_Y0 + 5 * ROW_H)],
+              fill=(255,255,255,40), width=1)
+
+    FOOTER_Y = ROW_Y0 + 5 * ROW_H + 14
+    draw.text((540, FOOTER_Y + 18), "※AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。",
+              font=f["xs"], fill=(255,255,255,140), anchor="mm")
+    draw.text((540, FOOTER_Y + 38), "*AI-based estimates. Check Anei Kanko official for cancellations.",
+              font=f["xs"], fill=(255,255,255,110), anchor="mm")
 
     img.save(output_path)
     print(f"  画像②保存: {output_path}")
@@ -488,25 +535,32 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
     draw = ImageDraw.Draw(img)
     f    = _fonts()
 
-    draw.text((540, 56),  "予報根拠データ  /  Forecast Data",
+    tmr = now + timedelta(days=1)
+    DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    tmr_ja = f"明日 {tmr.month}/{tmr.day} の気象予測"
+    tmr_en = f"Tomorrow  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})  /  Forecast Data"
+
+    draw.text((540, 52),  "予報根拠データ  /  Forecast Data",
               font=f["title"], fill="white", anchor="mm")
-    draw.text((540, 96),  f"明日 {(now + timedelta(days=1)).month}/{(now + timedelta(days=1)).day} の気象予測",
-              font=f["head_en"], fill=(255,255,255,180), anchor="mm")
-    draw.line([(60, 116), (1020, 116)], fill="#334E7A", width=2)
+    draw.text((540, 90),  f"{tmr_ja}   |   {tmr_en}",
+              font=f["head_en"], fill=(255,255,255,175), anchor="mm")
+    draw.line([(60, 112), (1020, 112)], fill="#334E7A", width=2)
 
-    # ヘッダー行
-    HDR_Y = 136
-    draw.rectangle([(60, HDR_Y), (1020, HDR_Y + 46)], fill="#1A3057")
-    for x, label in [
-        (64,  "航路"),
-        (380, "波高 (m)"),
-        (570, "うねり (m)"),
-        (760, "風速 (m/s)"),
-        (950, "欠航リスク"),
+    # ヘッダー行（日英バイリンガル）
+    HDR_Y = 122
+    draw.rectangle([(60, HDR_Y), (1020, HDR_Y + 54)], fill="#1A3057")
+    for x, ja, en in [
+        (64,  "航路",      "Route"),
+        (380, "波高 (m)",  "Wave Ht."),
+        (570, "うねり (m)","Swell Ht."),
+        (760, "風速 (m/s)","Wind Spd."),
+        (950, "欠航リスク","Cancel Risk"),
     ]:
-        draw.text((x, HDR_Y + 23), label, font=f["xs"], fill="#7EB3F5", anchor="lm")
+        draw.text((x, HDR_Y + 18), ja, font=f["xs"], fill="#7EB3F5", anchor="lm")
+        draw.text((x, HDR_Y + 38), en, font=_load_font(FONT_REGULAR, 15), fill="#5585B5", anchor="lm")
 
-    ROW_TOP = HDR_Y + 54
+    ROW_TOP = HDR_Y + 62
     ROW_H   = 100
 
     for idx, rid in enumerate(MODEL_ROUTES):
@@ -517,7 +571,7 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
         swell = d.get("max_swell")
         wind  = d.get("max_wind")
 
-        probs = probs_by_route.get(rid, [None] * 7)
+        probs = probs_by_route.get(rid, [None] * 8)
         pct1  = _pct(probs[1])
 
         row_y = ROW_TOP + idx * ROW_H
