@@ -507,6 +507,10 @@ def log_daily_records():
     now = datetime.now(JST)
     today_str = now.strftime("%Y-%m-%d")
 
+    # 安栄観光HP 一括取得（重複チェック前に実行 → caution_text を常に取得）
+    print(f"\n[八重山ロガー] データ収集中（{today_str}）...")
+    all_routes = get_all_routes_operation_status()
+
     # 重複チェック：今日すでに記録済みのルートを特定し、欠けているルートのみ書き込む
     existing_routes = set()
     try:
@@ -517,16 +521,11 @@ def log_daily_records():
                 existing_routes.add(r)
         if len(existing_routes) >= 7:
             print(f"  [スキップ] {today_str} の全航路記録はすでに存在します")
-            return [], _load_cancel_model(), ""
+            return [], _load_cancel_model(), all_routes.get("caution_text", "")
         if existing_routes:
             print(f"  [部分スキップ] 記録済み: {sorted(existing_routes)} / 未記録を追加します")
     except Exception as e:
         print(f"  [警告] 重複チェックエラー（続行）: {e}")
-
-    print(f"\n[八重山ロガー] データ収集中（{today_str}）...")
-
-    # 安栄観光HP 一括取得
-    all_routes = get_all_routes_operation_status()
 
     # モデル読み込み（欠航確率計算用）
     cancel_models = _load_cancel_model()

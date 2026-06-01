@@ -344,7 +344,7 @@ def make_image_short(probs_by_route, output_path):
     f    = _fonts()
 
     # タイトル
-    draw.text((540, 44),  "八重山航路 欠航リスク予報",
+    draw.text((540, 44),  "八重山航路（石垣島発着便）欠航リスク予報",
               font=f["title"], fill="white", anchor="mm")
     draw.text((540, 88),  "Yaeyama Routes (Ishigaki-based)  /  Cancellation Risk Forecast",
               font=f["title_en"], fill=(255,255,255,200), anchor="mm")
@@ -825,9 +825,16 @@ def _is_notable_caution(text):
 
 
 def _build_caption(probs_by_route, now, caution_text=None):
-    tmr   = now + timedelta(days=1)
+    tmr    = now + timedelta(days=1)
     DAY_JA = ["月","火","水","木","金","土","日"]
-    lines = [f"🚢 八重山航路（石垣島発着）欠航リスク予報 {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})", ""]
+    DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    lines = [
+        f"🚢 八重山航路（石垣島発着便）欠航リスク予報  {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})",
+        f"🚢 Yaeyama Routes (Ishigaki-based)  Cancellation Risk  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})",
+        "",
+    ]
     for rid in MODEL_ROUTES:
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 7)
@@ -835,18 +842,20 @@ def _build_caption(probs_by_route, now, caution_text=None):
         if pct1 is None:
             continue
         icon = "🔴" if pct1 >= 70 else ("🟡" if pct1 >= 40 else "🟢")
-        lines.append(f"{icon} {info['short']}: {pct1}%")
+        lines.append(f"{icon} {info['short']} / {info['en']}: {pct1}%")
 
     # 安栄観光HPの重要お知らせがある場合は追記
     if _is_notable_caution(caution_text):
-        lines += ["", "📢【安栄観光より】"]
-        # 長すぎる場合は300文字で切る
+        lines += ["", "📢【安栄観光より / From Anei Kanko】"]
         notice = caution_text if len(caution_text) <= 300 else caution_text[:297] + "..."
         lines.append(notice)
 
     lines += [
-        "", "📊 詳細は画像スワイプでご確認ください。",
-        "⚠️ AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。", "",
+        "",
+        "📊 詳細は画像スワイプでご確認ください。/ Swipe for details.",
+        "⚠️ AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。",
+        "⚠️ AI estimates only. Check Anei Kanko official site for cancellations.",
+        "",
         "#八重山 #石垣島 #西表島 #波照間島 #竹富島 #欠航予報",
         "#YaeyamaIslands #OkinawaFerry #JapanTravel #IslandHopping",
     ]
