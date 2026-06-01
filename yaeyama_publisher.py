@@ -254,7 +254,7 @@ def _fetch_forecast_batched(lats, lons, days=7, timeout=30, max_retries=3):
 def _pct(prob):
     if prob is None:
         return None
-    return min(int(round(prob * 100)), 99)  # cap at 99%（確率予測に100%はない）
+    return max(1, min(int(round(prob * 100)), 99))  # 1〜99%（0%/100%は確定表現を避ける）
 
 
 def _max_pct(probs_by_route, day_indices):
@@ -346,7 +346,7 @@ def make_image_short(probs_by_route, output_path):
     # タイトル
     draw.text((540, 44),  "八重山航路 欠航リスク予報",
               font=f["title"], fill="white", anchor="mm")
-    draw.text((540, 88),  "Yaeyama Routes  /  Cancellation Risk Forecast",
+    draw.text((540, 88),  "Yaeyama Routes (Ishigaki-based)  /  Cancellation Risk Forecast",
               font=f["title_en"], fill=(255,255,255,200), anchor="mm")
     draw.line([(60, 110), (1020, 110)], fill=(255,255,255,80), width=1)
 
@@ -446,7 +446,7 @@ def make_image_longterm(probs_by_route, output_path):
     # ── タイトル ──
     draw.text((540, 44),  "長期予報（3〜7日先）",
               font=f["title"], fill="white", anchor="mm")
-    draw.text((540, 86),  "Yaeyama Routes  /  Long-term Cancellation Risk  (3-7 days ahead)",
+    draw.text((540, 86),  "Yaeyama Routes (Ishigaki-based)  /  Long-term Cancellation Risk  (3-7 days ahead)",
               font=f["title_en"], fill=(255,255,255,200), anchor="mm")
     draw.line([(40, 108), (1040, 108)], fill=(255,255,255,80), width=1)
 
@@ -812,10 +812,22 @@ def _post_to_instagram(image_urls, caption):
 # キャプション
 # ============================================================
 
-def _build_caption(probs_by_route, now):
+_CAUTION_KEYWORDS = [
+    "欠航", "運休", "時化", "台風", "低気圧", "未定", "見込み", "引き返す", "条件付",
+]
+
+
+def _is_notable_caution(text):
+    """通常運航以外の重要なお知らせかどうか判定"""
+    if not text:
+        return False
+    return any(kw in text for kw in _CAUTION_KEYWORDS)
+
+
+def _build_caption(probs_by_route, now, caution_text=None):
     tmr   = now + timedelta(days=1)
     DAY_JA = ["月","火","水","木","金","土","日"]
-    lines = [f"🚢 八重山航路 欠航リスク予報 {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})", ""]
+    lines = [f"🚢 八重山航路（石垣島発着）欠航リスク予報 {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})", ""]
     for rid in MODEL_ROUTES:
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 7)
@@ -824,6 +836,14 @@ def _build_caption(probs_by_route, now):
             continue
         icon = "🔴" if pct1 >= 70 else ("🟡" if pct1 >= 40 else "🟢")
         lines.append(f"{icon} {info['short']}: {pct1}%")
+
+    # 安栄観光HPの重要お知らせがある場合は追記
+    if _is_notable_caution(caution_text):
+        lines += ["", "📢【安栄観光より】"]
+        # 長すぎる場合は300文字で切る
+        notice = caution_text if len(caution_text) <= 300 else caution_text[:297] + "..."
+        lines.append(notice)
+
     lines += [
         "", "📊 詳細は画像スワイプでご確認ください。",
         "⚠️ AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。", "",
@@ -837,7 +857,7 @@ def _build_caption(probs_by_route, now):
 # メイン
 # ============================================================
 
-def run_yaeyama_publisher(route_data_list=None, cancel_models=None):
+def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text=None):
     """yaeyama_logger.py から呼び出すエントリーポイント。"""
     now = datetime.now(JST)
     print(f"\n{'='*50}")
@@ -870,7 +890,9 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None):
     image_urls = _upload_images_to_github(paths)
 
     # [P4] キャプション & Instagram 投稿
-    caption = _build_caption(probs_by_route, now)
+    if caution_text and _is_notable_caution(caution_text):
+        print(f"  [お知らせ] 重要caution_text検出: {caution_text[:60]}...")
+    caption = _build_caption(probs_by_route, now, caution_text=caution_text)
     print(f"\n[P4] Instagram 投稿中...")
     _post_to_instagram(image_urls, caption)
 
