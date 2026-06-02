@@ -596,6 +596,20 @@ if __name__ == "__main__":
     print(f"Yaeyama All-Routes Logger: {datetime.now(JST).strftime('%Y-%m-%d %H:%M')}")
     print("=" * 50)
 
+    # 時刻ガード（schedule イベントのみ）
+    # GitHub Actions のスケジューラーが遅延して意図しない時刻に実行されるケースへの対策。
+    # 手動実行（workflow_dispatch）はこのチェックをスキップ。
+    # 許可時間帯: 7〜10時台（8:15 JST想定）、12〜15時台（14:30 JST想定＋遅延吸収）
+    _event = os.environ.get("GITHUB_EVENT_NAME", "manual")
+    if _event == "schedule":
+        _now_jst = datetime.now(JST)
+        _allowed = set(range(7, 11)) | set(range(12, 16))
+        if _now_jst.hour not in _allowed:
+            print(f"[スキップ] スケジュール外の時刻: {_now_jst.strftime('%H:%M')} JST")
+            print(f"  許可時間帯: 7〜10時 / 12〜15時（JST）")
+            print(f"  GitHubスケジューラーの遅延が原因の可能性があります。処理を中断します。")
+            import sys; sys.exit(0)
+
     # Sheets記録（重複スキップ込み）
     result = log_daily_records()
     route_data_list = result[0] if result else []
