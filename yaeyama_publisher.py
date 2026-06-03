@@ -195,13 +195,13 @@ def _fetch_forecast_batched(lats, lons, days=7, timeout=30, max_retries=3):
     marine_url = (
         f"https://marine-api.open-meteo.com/v1/marine"
         f"?latitude={lat_str}&longitude={lon_str}"
-        f"&hourly=wave_height,swell_wave_height"
+        f"&hourly=wave_height,swell_wave_height,swell_wave_period"
         f"&timezone=Asia%2FTokyo&forecast_days={days}"
     )
     weather_url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat_str}&longitude={lon_str}"
-        f"&hourly=wind_speed_10m"
+        f"&hourly=wind_speed_10m,wind_gusts_10m"
         f"&wind_speed_unit=ms"
         f"&timezone=Asia%2FTokyo&forecast_days={days}"
     )
@@ -237,10 +237,12 @@ def _fetch_forecast_batched(lats, lons, days=7, timeout=30, max_retries=3):
                 return round(max(v), 2) if v else None
 
             day_list.append({
-                "date":      target,
-                "max_wave":  _max(marine_data,  "wave_height",       idx),
-                "max_swell": _max(marine_data,  "swell_wave_height", idx),
-                "max_wind":  _max(weather_data, "wind_speed_10m",    idx),
+                "date":             target,
+                "max_wave":         _max(marine_data,  "wave_height",        idx),
+                "max_swell":        _max(marine_data,  "swell_wave_height",  idx),
+                "max_swell_period": _max(marine_data,  "swell_wave_period",  idx),
+                "max_wind":         _max(weather_data, "wind_speed_10m",     idx),
+                "max_gust":         _max(weather_data, "wind_gusts_10m",     idx),
             })
         result[(la, lo)] = day_list
 
@@ -297,16 +299,18 @@ def _build_forecast_data(route_data_list, cancel_models):
         for delta in range(8):
             if delta == 1 and rid in day1_weather:
                 # Day1: ロガー取得済みデータ優先
-                w     = day1_weather[rid]
-                wave  = w.get("tmr_max_wave")
-                swell = w.get("tmr_max_swell")
-                wind  = w.get("tmr_max_wind")
+                w            = day1_weather[rid]
+                wave         = w.get("tmr_max_wave")
+                swell        = w.get("tmr_max_swell")
+                wind         = w.get("tmr_max_wind")
+                swell_period = w.get("tmr_max_swell_period")
             else:
-                d     = days8[delta] if delta < len(days8) else {}
-                wave  = d.get("max_wave")
-                swell = d.get("max_swell")
-                wind  = d.get("max_wind")
-            p = _predict_prob(m_hs, wave, swell, wind)
+                d            = days8[delta] if delta < len(days8) else {}
+                wave         = d.get("max_wave")
+                swell        = d.get("max_swell")
+                wind         = d.get("max_wind")
+                swell_period = d.get("max_swell_period")
+            p = _predict_prob(m_hs, wave, swell, wind, swell_period=swell_period)
             probs.append(p)
         result[rid] = probs
         print(f"  [{rid}] 明日:{_pct(probs[1])}%  明後日:{_pct(probs[2])}%")
