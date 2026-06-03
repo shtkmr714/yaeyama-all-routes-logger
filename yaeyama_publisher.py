@@ -918,16 +918,16 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
     caption = _build_caption(probs_by_route, now, caution_text=caution_text)
 
     # 午後便（12時以降）は欠航リスクが高い場合のみInstagram投稿（座間味と同じロジック）
-    # 条件: 明日 or 明後日のいずれかの航路で欠航確率 61% 以上
+    # 条件: 短期（明日・明後日）+ 長期（3〜6日先）全期間のいずれかで欠航確率 61% 以上
     is_afternoon_run = now.hour >= 12
     if is_afternoon_run:
         max_pct = max(
             (_pct(probs_by_route.get(rid, [None] * 7)[i]) or 0)
             for rid in MODEL_ROUTES
-            for i in [1, 2]
+            for i in range(1, 7)   # 明日〜6日後（全予報期間）
         )
         if max_pct < 61:
-            print(f"  [午後便] 全航路最大欠航リスク {max_pct}% < 61% → Instagram投稿スキップ")
+            print(f"  [午後便] 全期間・全航路最大欠航リスク {max_pct}% < 61% → Instagram投稿スキップ")
             print("\n✅ Yaeyama Publisher 完了")
             return
         print(f"  [午後便] 最大欠航リスク {max_pct}% ≥ 61% → Instagram投稿実行")
