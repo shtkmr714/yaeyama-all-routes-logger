@@ -180,7 +180,7 @@ def _predict_prob(model_params, wave, swell, wind, swell_period=None):
 # Open-Meteo: batched 7日間予報取得
 # ============================================================
 
-def _fetch_forecast_batched(lats, lons, days=7, timeout=30, max_retries=3):
+def _fetch_forecast_batched(lats, lons, days=7, timeout=60, max_retries=3):
     """
     複数座標を1リクエストに集約して 7日分の波高・うねり・風速を返す。
     戻り値: {(lat, lon): [{"date", "max_wave", "max_swell", "max_wind"}, ...]}
