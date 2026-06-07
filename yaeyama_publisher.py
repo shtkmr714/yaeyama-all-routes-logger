@@ -835,6 +835,30 @@ _CAUTION_KEYWORDS = [
 ]
 
 
+def _load_active_suspensions():
+    """
+    planned_suspensions.json を読み込み、today <= end のものだけ返す。
+    ファイルが存在しない・空の場合は [] を返す。
+    """
+    json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "planned_suspensions.json")
+    try:
+        import json as _json
+        with open(json_path, encoding="utf-8") as f:
+            all_sus = _json.load(f)
+        today = datetime.now(JST).date()
+        active = [
+            s for s in all_sus
+            if s.get("start") and s.get("end")
+            and datetime.strptime(s["end"], "%Y-%m-%d").date() >= today
+        ]
+        if active:
+            print(f"  [計画運休] {len(active)}件（期限内）: {[s['vessel_ja'] for s in active]}")
+        return active
+    except Exception as e:
+        print(f"  [警告] planned_suspensions.json 読み込みエラー: {e}")
+        return []
+
+
 def _is_notable_caution(text):
     """通常運航以外の重要なお知らせかどうか判定"""
     if not text:
@@ -842,17 +866,25 @@ def _is_notable_caution(text):
     return any(kw in text for kw in _CAUTION_KEYWORDS)
 
 
-def _build_caption(probs_by_route, now, caution_text=None):
+def _build_caption(probs_by_route, now, caution_text=None, suspensions=None):
     tmr    = now + timedelta(days=1)
     DAY_JA = ["月","火","水","木","金","土","日"]
     DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
     MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    suspensions = suspensions or []
 
     lines = [
         f"🚢 八重山航路（石垣島発着便）欠航リスク予報  {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})",
         f"🚢 Yaeyama Routes (Ishigaki-based)  Cancellation Risk  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})",
         "",
     ]
+    # 計画運休（期限内のものだけ表示）
+    for s in suspensions:
+        lines.append(
+            f"⚠️ {s['vessel_ja']}は{s['start'][5:].replace('-','/')}〜"
+            f"{s['end'][5:].replace('-','/')} {s['reason_ja']}運休中 / "
+            f"{s['vessel_en']} Suspended ({s['reason_en']})"
+        )
     for rid in MODEL_ROUTES:
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 7)
@@ -894,6 +926,9 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
     if cancel_models is None:
         cancel_models = _load_model()
 
+    # [P0] 計画運休情報読み込み（期限内のものだけ抽出）
+    suspensions = _load_active_suspensions()
+
     # [P1] 予報データ構築（Day1はロガー取得済みデータ使用）
     print("\n[P1] 欠航確率計算中...")
     probs_by_route, batched = _build_forecast_data(route_data_list, cancel_models)
@@ -919,7 +954,8 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
     # [P4] キャプション & Instagram 投稿
     if caution_text and _is_notable_caution(caution_text):
         print(f"  [お知らせ] 重要caution_text検出: {caution_text[:60]}...")
-    caption = _build_caption(probs_by_route, now, caution_text=caution_text)
+    caption = _build_caption(probs_by_route, now, caution_text=caution_text,
+                             suspensions=suspensions)
 
     # 午後便（12時以降）は欠航リスクが高い場合のみInstagram投稿（座間味と同じロジック）
     # 条件: 短期（明日・明後日）+ 長期（3〜6日先）全期間のいずれかで欠航確率 61% 以上
