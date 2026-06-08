@@ -835,6 +835,71 @@ _CAUTION_KEYWORDS = [
 ]
 
 
+_SLACK_ALERT_THRESHOLD = 61  # この%以上で通知
+
+
+def _send_slack_alert(probs_by_route, now):
+    """
+    短期＋長期のいずれかで欠航リスクが閾値以上なら Slack に通知。
+    内容は欠航可能性%のみ（波高等の気象データは含めない）。
+    """
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        print("  [Slack スキップ] SLACK_WEBHOOK_URL 未設定")
+        return
+
+    # 全航路・全日の最大%
+    max_all = max(
+        (_pct(probs_by_route.get(rid, [None] * 7)[i]) or 0)
+        for rid in MODEL_ROUTES
+        for i in range(1, 7)
+    )
+
+    if max_all < _SLACK_ALERT_THRESHOLD:
+        print(f"  [Slack スキップ] 全期間最大リスク {max_all}% < {_SLACK_ALERT_THRESHOLD}%")
+        return
+
+    DAY_JA = ["（月）","（火）","（水）","（木）","（金）","（土）","（日）"]
+    lines  = [
+        f"🚨 欠航リスクアラート【八重山航路（石垣島発着）】{now.strftime('%-m/%-d %H:%M')}更新",
+        "",
+    ]
+
+    # 明日・明後日の航路別リスク
+    for delta in [1, 2]:
+        dt      = now + timedelta(days=delta)
+        label   = "明日" if delta == 1 else "明後日"
+        date_str = f"{dt.strftime('%-m/%-d')}{DAY_JA[dt.weekday()]}"
+        lines.append(f"{'🔴' if max_all >= 81 else '🟠' if max_all >= 61 else '🟡'} {label} {date_str}")
+        for rid in MODEL_ROUTES:
+            pct = _pct(probs_by_route.get(rid, [None] * 7)[delta]) or 0
+            if pct >= _SLACK_ALERT_THRESHOLD:
+                icon = "🔴" if pct >= 81 else ("🟠" if pct >= 61 else "🟡")
+                lines.append(f"  {icon} {ROUTE_INFO[rid]['name']}: {pct}%")
+
+    # 長期（3〜6日先）最大値
+    max_lt = max(
+        (_pct(probs_by_route.get(rid, [None] * 7)[i]) or 0)
+        for rid in MODEL_ROUTES
+        for i in range(3, 7)
+    )
+    lines.append("")
+    if max_lt >= _SLACK_ALERT_THRESHOLD:
+        lines.append(f"📅 長期（3〜6日先）  最大 {max_lt}%")
+    else:
+        lines.append(f"📅 長期（3〜6日先）  懸念なし（最大 {max_lt}%）")
+    lines += ["", "⚠️ AI予測・参考値"]
+
+    try:
+        resp = requests.post(webhook_url, json={"text": "\n".join(lines)}, timeout=10)
+        if resp.status_code == 200:
+            print(f"  ✅ Slack アラート送信（最大リスク {max_all}%）")
+        else:
+            print(f"  [警告] Slack 送信失敗: {resp.status_code}")
+    except Exception as e:
+        print(f"  [警告] Slack 送信エラー: {e}")
+
+
 def _load_active_suspensions():
     """
     planned_suspensions.json を読み込み、today <= end のものだけ返す。
@@ -932,6 +997,9 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
     # [P1] 予報データ構築（Day1はロガー取得済みデータ使用）
     print("\n[P1] 欠航確率計算中...")
     probs_by_route, batched = _build_forecast_data(route_data_list, cancel_models)
+
+    # [P1b] Slack アラート（61%以上の場合のみ）
+    _send_slack_alert(probs_by_route, now)
 
     # [P2] 画像生成
     print("\n[P2] 画像生成中...")
