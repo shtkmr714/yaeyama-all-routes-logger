@@ -10,6 +10,13 @@ GitHub Actions から呼び出す。
   hs_bin1〜6_operated: 石垣発 各便（1=運航, 0=欠航, None=その便なし）
   最大便数: 竹富 6便 / 上原 4便 / 波照間・大原・小浜・黒島 3便 / 鳩間 2便
   ◯ → 1, △・✕ → 0
+
+【データ系統の注意（精度検証の前提）】
+  気象列（wave_max/swell_max/wind_max 等）は 2026-06-09 以前、航路ごとの個別fetch
+  （7航路×2API=14リクエスト）がOpen-Meteoのレート制限/タイムアウトに当たり
+  直近データの約51%が欠損していた。2026-06-09 に batched プリフェッチへ修正し解消。
+  → 気象データを用いた精度検証・モデル学習は 2026-06-09 以降のデータで行うこと。
+  （hs_bin4〜6 / ferry_operated の空欄は便数差・波照間限定によるもので正常）
 """
 
 import os
@@ -318,6 +325,90 @@ def _parse_route(soup, route_id, caution_text):
 _weather_cache = {}   # (lat, lon) -> result dict
 
 
+def prefetch_all_weather(route_configs):
+    """
+    全航路の座標を1リクエストに集約して取得し _weather_cache を一括で埋める。
+    旧実装は航路ごとに個別fetch（7航路×2API=14リクエスト）しており、
+    Open-Meteoのレート制限/タイムアウトで直近データの約半数が欠損していた。
+    publisher と同じ batched 方式に統一して取得漏れを解消する（2026-06修正）。
+    """
+    import time as _time
+    coords = [(round(c["lat"], 6), round(c["lon"], 6)) for c in route_configs.values()]
+    lats = ",".join(str(la) for la, _ in coords)
+    lons = ",".join(str(lo) for _, lo in coords)
+
+    marine_url = (
+        f"https://marine-api.open-meteo.com/v1/marine"
+        f"?latitude={lats}&longitude={lons}"
+        f"&hourly=wave_height,swell_wave_height,swell_wave_period"
+        f"&timezone=Asia%2FTokyo&forecast_days=3"
+    )
+    weather_url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lats}&longitude={lons}"
+        f"&hourly=wind_speed_10m,wind_direction_10m"
+        f"&wind_speed_unit=ms"
+        f"&timezone=Asia%2FTokyo&forecast_days=3"
+    )
+
+    def _get_json(url, retries=3, timeout=30):
+        for attempt in range(retries):
+            try:
+                return requests.get(url, timeout=timeout).json()
+            except Exception as e:
+                print(f"  [警告] Open-Meteo batched取得リトライ {attempt+1}/{retries}: {e}")
+                if attempt < retries - 1:
+                    _time.sleep(5 * (attempt + 1))
+        return None
+
+    marine = _get_json(marine_url)
+    weather = _get_json(weather_url)
+    if marine is None or weather is None:
+        print("  [警告] batchedプリフェッチ失敗 → 個別fetchにフォールバック")
+        return
+
+    marine_locs  = marine  if isinstance(marine, list)  else [marine]
+    weather_locs = weather if isinstance(weather, list) else [weather]
+    now = datetime.now(JST)
+
+    def _daily_max(loc, key, delta):
+        target = (now + timedelta(days=delta)).strftime("%Y-%m-%d")
+        times  = loc.get("hourly", {}).get("time", [])
+        values = loc.get("hourly", {}).get(key, [])
+        vals   = [v for t, v in zip(times, values) if t.startswith(target) and v is not None]
+        return round(max(vals), 2) if vals else None
+
+    def _daily_wind_dir(loc, delta):
+        target = (now + timedelta(days=delta)).strftime("%Y-%m-%d")
+        times  = loc.get("hourly", {}).get("time", [])
+        values = loc.get("hourly", {}).get("wind_direction_10m", [])
+        dirs   = [v for t, v in zip(times, values) if t.startswith(target) and v is not None]
+        if not dirs:
+            return None
+        rads = [d * math.pi / 180 for d in dirs]
+        s = sum(math.sin(r) for r in rads) / len(rads)
+        c = sum(math.cos(r) for r in rads) / len(rads)
+        return round(math.degrees(math.atan2(s, c)) % 360, 1)
+
+    for i, key in enumerate(coords):
+        if i >= len(marine_locs) or i >= len(weather_locs):
+            break
+        m, w = marine_locs[i], weather_locs[i]
+        _weather_cache[key] = {
+            "today_max_wave":     _daily_max(m, "wave_height",       0),
+            "today_max_swell":    _daily_max(m, "swell_wave_height", 0),
+            "today_max_wind":     _daily_max(w, "wind_speed_10m",    0),
+            "tmr_max_wave":       _daily_max(m, "wave_height",       1),
+            "tmr_max_swell":      _daily_max(m, "swell_wave_height", 1),
+            "tmr_max_wind":       _daily_max(w, "wind_speed_10m",    1),
+            "dayafter_max_wave":  _daily_max(m, "wave_height",       2),
+            "today_swell_period": _daily_max(m, "swell_wave_period", 0),
+            "today_wind_dir":     _daily_wind_dir(w, 0),
+        }
+    filled = sum(1 for k in coords if k in _weather_cache)
+    print(f"  [Open-Meteo] batchedプリフェッチ完了: {filled}/{len(coords)}地点")
+
+
 def get_weather_for_coord(lat, lon):
     """指定座標の当日〜明後日の最大波高・うねり・風速を返す（キャッシュ付き）"""
     key = (round(lat, 6), round(lon, 6))
@@ -343,7 +434,7 @@ def get_weather_for_coord(lat, lon):
             f"&hourly=wave_height,swell_wave_height,swell_wave_period"
             f"&timezone=Asia%2FTokyo&forecast_days=3"
         )
-        marine_data = requests.get(marine_url, timeout=15).json()
+        marine_data = requests.get(marine_url, timeout=30).json()
 
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast"
@@ -352,7 +443,7 @@ def get_weather_for_coord(lat, lon):
             f"&wind_speed_unit=ms"
             f"&timezone=Asia%2FTokyo&forecast_days=3"
         )
-        weather_data = requests.get(weather_url, timeout=15).json()
+        weather_data = requests.get(weather_url, timeout=30).json()
 
         now = datetime.now(JST)
 
@@ -529,6 +620,9 @@ def log_daily_records():
 
     # モデル読み込み（欠航確率計算用）
     cancel_models = _load_cancel_model()
+
+    # 気象データを全航路まとめてプリフェッチ（個別fetchによる取得漏れ対策）
+    prefetch_all_weather(ROUTE_CONFIGS)
 
     # 全7航路の行を構築（記録済みルートはスキップ）
     rows = []
