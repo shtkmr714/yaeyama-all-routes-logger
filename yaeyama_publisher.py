@@ -32,14 +32,34 @@ JST = ZoneInfo("Asia/Tokyo")
 MODEL_ROUTES = ["route1", "route3", "route5", "route6", "route7"]
 
 ROUTE_INFO = {
-    "route1": {"name": "大原（西表島東）", "short": "大原",  "en": "Ohara",    "lat": 24.28,      "lon": 124.13},
-    "route3": {"name": "竹富島",           "short": "竹富島", "en": "Taketomi", "lat": 24.36,      "lon": 124.10},
-    "route5": {"name": "上原（西表島北）", "short": "上原",  "en": "Uehara",   "lat": 24.40,      "lon": 123.86},
-    "route6": {"name": "波照間島",         "short": "波照間", "en": "Hateruma", "lat": 24.165974,  "lon": 123.836266},
-    "route7": {"name": "鳩間島",           "short": "鳩間島", "en": "Hatoma",   "lat": 24.47,      "lon": 123.80},
+    "route1": {"name": "大原（西表島東）", "short": "大原",  "en": "Ohara",    "island_ja": "西表島",   "island_en": "Iriomote", "lat": 24.28,      "lon": 124.13},
+    "route3": {"name": "竹富島",           "short": "竹富島", "en": "Taketomi", "island_ja": "竹富島",   "island_en": "Taketomi", "lat": 24.36,      "lon": 124.10},
+    "route5": {"name": "上原（西表島北）", "short": "上原",  "en": "Uehara",   "island_ja": "西表島",   "island_en": "Iriomote", "lat": 24.40,      "lon": 123.86},
+    "route6": {"name": "波照間島",         "short": "波照間", "en": "Hateruma", "island_ja": "波照間島", "island_en": "Hateruma", "lat": 24.165974,  "lon": 123.836266},
+    "route7": {"name": "鳩間島",           "short": "鳩間島", "en": "Hatoma",   "island_ja": "鳩間島",   "island_en": "Hatoma",   "lat": 24.47,      "lon": 123.80},
 }
 
 IMG_SIZE = (1080, 1080)
+
+
+def _route_label_ja(rid):
+    """航路の港名＋島名ラベル（日本語）。港名が島名に含まれる場合は島名のみ。
+    例: route1→大原（西表島）, route6→波照間島, route3→竹富島"""
+    info = ROUTE_INFO[rid]
+    port, island = info["short"], info.get("island_ja", "")
+    if not island or port in island or island in port:
+        return island or port
+    return f"{port}（{island}）"
+
+
+def _route_label_en(rid):
+    """航路の港名＋島名ラベル（英語）。例: route1→Ohara (Iriomote)"""
+    info = ROUTE_INFO[rid]
+    port, island = info["en"], info.get("island_en", "")
+    if not island or port in island or island in port:
+        return island or port
+    return f"{port} ({island})"
+
 
 # ============================================================
 # フォント
@@ -402,9 +422,9 @@ def make_image_short(probs_by_route, output_path):
 
         draw.line([(60, row_y), (1020, row_y)], fill=(255,255,255,35), width=1)
 
-        draw.text((COL_NAME, cy - 12), info["short"],
+        draw.text((COL_NAME, cy - 12), _route_label_ja(rid),
                   font=f["route"], fill="white", anchor="mm")
-        draw.text((COL_NAME, cy + 18), info["en"],
+        draw.text((COL_NAME, cy + 18), _route_label_en(rid),
                   font=_load_font(FONT_REGULAR, 17), fill=(255,255,255,150), anchor="mm")
 
         for col_x, pct in [(COL_TMR, pct1), (COL_DAY2, pct2)]:
@@ -510,11 +530,13 @@ def make_image_longterm(probs_by_route, output_path):
         draw.line([(TBL_X, row_y), (TBL_X + TBL_W, row_y)],
                   fill=(255,255,255,40), width=1)
 
-        # 航路名
-        draw.text((TBL_X + LABEL_W // 2, cy - 12), info["short"],
-                  font=f["route"], fill="white", anchor="mm")
-        draw.text((TBL_X + LABEL_W // 2, cy + 18), info["en"],
-                  font=_load_font(FONT_REGULAR, 17), fill=(255,255,255,150), anchor="mm")
+        # 航路名（港名＋島名）。ラベル列が狭いため島名併記時はフォントを縮小。
+        label_ja = _route_label_ja(rid)
+        route_font = f["route"] if len(label_ja) <= 4 else _load_font(FONT_MEDIUM, 21)
+        draw.text((TBL_X + LABEL_W // 2, cy - 12), label_ja,
+                  font=route_font, fill="white", anchor="mm")
+        draw.text((TBL_X + LABEL_W // 2, cy + 18), _route_label_en(rid),
+                  font=_load_font(FONT_REGULAR, 15), fill=(255,255,255,150), anchor="mm")
 
         # セル（日付ごとの%）
         for ci, delta in enumerate(lt_deltas):
@@ -619,10 +641,12 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
         draw.line([(RX, row_y), (1040, row_y)],
                   fill=(255, 255, 255, 22), width=1)
 
-        draw.text((RX + RW // 2, cy - 8), info["short"],
-                  font=_load_font(FONT_BOLD, 22), fill="#BBDEFB", anchor="mm")
-        draw.text((RX + RW // 2, cy + 14), info["en"],
-                  font=_load_font(FONT_REGULAR, 15), fill="#5585B5", anchor="mm")
+        label_ja = _route_label_ja(rid)
+        draw.text((RX + RW // 2, cy - 8), label_ja,
+                  font=_load_font(FONT_BOLD, 16 if len(label_ja) > 4 else 22),
+                  fill="#BBDEFB", anchor="mm")
+        draw.text((RX + RW // 2, cy + 13), _route_label_en(rid),
+                  font=_load_font(FONT_REGULAR, 12), fill="#5585B5", anchor="mm")
 
         for delta, base_x in [(1, DAY0_X), (2, DAY1_X)]:
             d    = days8[delta] if delta < len(days8) else {}
@@ -672,8 +696,10 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
         draw.line([(RX, row_y), (1040, row_y)],
                   fill=(255, 255, 255, 18), width=1)
 
-        draw.text((RX + RW2 // 2, cy), info["short"],
-                  font=_load_font(FONT_MEDIUM, 19), fill="#BBDEFB", anchor="mm")
+        label_ja = _route_label_ja(rid)
+        draw.text((RX + RW2 // 2, cy), label_ja,
+                  font=_load_font(FONT_MEDIUM, 15 if len(label_ja) > 4 else 19),
+                  fill="#BBDEFB", anchor="mm")
 
         for ci, delta in enumerate(range(3, 8)):
             d    = days8[delta] if delta < len(days8) else {}
@@ -966,7 +992,7 @@ def _build_caption(probs_by_route, now, caution_text=None, suspensions=None):
         if pct1 is None:
             continue
         icon = "🔴" if pct1 >= 70 else ("🟡" if pct1 >= 40 else "🟢")
-        lines.append(f"{icon} {info['short']} / {info['en']}: {pct1}%")
+        lines.append(f"{icon} {_route_label_ja(rid)} / {_route_label_en(rid)}: {pct1}%")
 
     # 安栄観光HPの重要お知らせがある場合は追記
     if _is_notable_caution(caution_text):
