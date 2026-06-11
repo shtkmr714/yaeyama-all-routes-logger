@@ -1,9 +1,17 @@
 """
 yaeyama_model_trainer.py
-航路別欠航予測ロジスティック回帰モデルの学習スクリプト（一回限り）。
+航路別 波高単独 欠航予測モデルの学習スクリプト。
 
-Google Sheets から yaeyama_operation_log を読み込み、
-航路 × HS/フェリー 別にモデルを学習して yaeyama_cancel_model.json に保存する。
+2026-06 改訂: 特徴量選択分析の結論に基づき「波高単独モデル」へ全面移行。
+  うねり・風速は波高と強く相関（r=0.82〜0.89）し多変量で有意でない。
+  旧3変数ロジスティックは多重共線性で係数符号が反転する航路があった
+  （route7: 波高係数マイナス）。波高単独で全航路 CV-AUC が同等以上を確認済み。
+
+各航路について欠航% = 1/(1+exp(-k*(wave - x0))) を最尤推定し、
+yaeyama_cancel_model.json に model_type="wave_logistic" として保存する。
+
+route2（小浜島）は波高・他変数いずれも欠航と無相関（AUC≈0.55）のため
+モデル化を見送り（データ蓄積待ち）。entry["hs"]=None。
 
 Output: yaeyama_cancel_model.json（リポジトリに commit される）
 """
@@ -14,10 +22,9 @@ import math
 import warnings
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.pipeline import Pipeline
+from scipy.optimize import minimize
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
@@ -27,11 +34,6 @@ warnings.filterwarnings("ignore")
 
 SHEET_NAME  = "yaeyama_operation_log"
 OUTPUT_FILE = "yaeyama_cancel_model.json"
-
-FEATURES = ["wave_max", "swell_max", "wind_max"]   # 当日実測値（予測時はforecastを代入）
-
-# route2（小浜島）専用: swell_period_max を追加（wave_maxは欠航と無相関）
-ROUTE2_FEATURES = ["wave_max", "swell_max", "wind_max", "swell_period_max"]
 
 ROUTE_CONFIGS = {
     "route1": "大原（西表島東）",
@@ -43,42 +45,10 @@ ROUTE_CONFIGS = {
     "route7": "鳩間島",
 }
 
-MIN_POSITIVE = 20    # 正例がこれ未満ならモデル構築をスキップ
+# route2 はデータ蓄積待ちのためモデル化しない
+SKIP_ROUTES = {"route2"}
 
-# ルールベースモデルの閾値（threshold_analyzerの結果から設定）
-# model_type = "rule" の場合に使用
-RULE_BASED_PARAMS = {
-    "route1": {
-        "model_type":      "rule",
-        "route_id":        "route1",
-        "target":          "hs_weather_cancel",
-        "features":        ["wave_max", "wind_max"],
-        "wave_thr_high":   4.50,   # この閾値以上: 高確率欠航（精度85%）
-        "wave_thr_mid":    3.25,   # F1最大の閾値（精度64%）
-        "wind_thr":        12.0,   # F1最大の閾値（精度58%）
-        "prob_wave_high":  0.80,
-        "prob_wave_mid":   0.50,
-        "prob_wind_add":   0.20,
-        "f1_wave":         0.621,
-        "f1_wind":         0.647,
-        "note":            "正例15件でロジスティック回帰スキップ。threshold_analyzerの結果に基づくルールベース。",
-    },
-    "route3": {
-        "model_type":      "rule",
-        "route_id":        "route3",
-        "target":          "hs_weather_cancel",
-        "features":        ["wave_max", "wind_max"],
-        "wave_thr_high":   3.75,   # この閾値以上: 精度100%（必ず欠航）
-        "wave_thr_mid":    2.50,   # 中程度リスク
-        "wind_thr":        12.0,   # F1最大の閾値（精度47%）
-        "prob_wave_high":  0.90,
-        "prob_wave_mid":   0.35,
-        "prob_wind_add":   0.20,
-        "f1_wave":         0.435,
-        "f1_wind":         0.486,
-        "note":            "正例18件でロジスティック回帰スキップ。wave>=3.75は精度100%（必ず欠航）。",
-    },
-}
+MIN_POSITIVE = 10    # 正例がこれ未満ならモデル構築をスキップ
 
 
 # ============================================================
@@ -134,64 +104,74 @@ def load_dataframe(ws):
 # モデル学習
 # ============================================================
 
-def train_logistic(X, y, route_id, target_name, features=None):
-    """
-    StandardScaler + LogisticRegression を学習し、
-    モデルパラメータ辞書（JSON保存用）を返す。
-    features: 使用する特徴量名リスト（省略時はグローバルの FEATURES）
-    """
-    if features is None:
-        features = FEATURES
-    n_pos   = int(y.sum())
-    n_total = len(y)
-    cancel_rate = n_pos / n_total if n_total > 0 else 0.0
+def _fit_wave_mle(wave, y):
+    """波高単独ロジスティックを最尤推定（class_weightなし＝確率を実欠航率に較正）。
+    戻り値 (x0, k)。x0=50%到達波高(m), k=急峻さ。"""
+    wave = np.asarray(wave, float); y = np.asarray(y, int)
+    def nll(p):
+        z = np.clip(p[1] * (wave - p[0]), -30, 30)
+        pr = np.clip(1 / (1 + np.exp(-z)), 1e-7, 1 - 1e-7)
+        return -np.sum(y * np.log(pr) + (1 - y) * np.log(1 - pr))
+    res = minimize(nll, [2.5, 3.0], method="Nelder-Mead",
+                   options={"xatol": 1e-4, "fatol": 1e-4})
+    return float(res.x[0]), float(res.x[1])
 
+
+def _cv_auc_wave(wave, y, k=5):
+    """波高単独モデルの層化k分割CV-AUC"""
+    wave = np.asarray(wave, float); y = np.asarray(y, int)
+    npos = int(y.sum()); nneg = len(y) - npos
+    k = max(2, min(k, npos, nneg))
+    if k < 2:
+        return None, None
+    skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+    aucs = []
+    for tr, te in skf.split(wave, y):
+        if len(set(y[te])) < 2:
+            continue
+        x0, kk = _fit_wave_mle(wave[tr], y[tr])
+        z = np.clip(kk * (wave[te] - x0), -30, 30)
+        pr = 1 / (1 + np.exp(-z))
+        aucs.append(roc_auc_score(y[te], pr))
+    if not aucs:
+        return None, None
+    return float(np.mean(aucs)), float(np.std(aucs))
+
+
+def train_wave_only(wave, y, route_id):
+    """
+    波高単独ロジスティックモデルを学習し JSON 保存用 dict を返す。
+    """
+    wave = np.asarray(wave, float); y = np.asarray(y, int)
+    n_pos = int(y.sum()); n_total = len(y)
+    cancel_rate = n_pos / n_total if n_total else 0.0
     print(f"    サンプル: {n_total:,}  正例（欠航）: {n_pos}  欠航率: {cancel_rate:.1%}")
 
     if n_pos < MIN_POSITIVE:
         print(f"    ⚠ 正例数不足（{n_pos} < {MIN_POSITIVE}）→ スキップ")
         return None
 
-    # --- 学習 ---
-    scaler = StandardScaler()
-    X_s    = scaler.fit_transform(X)
-
-    # class_weight='balanced' で少数クラス（欠航）を強調
-    clf = LogisticRegression(C=1.0, class_weight="balanced",
-                             max_iter=1000, random_state=42)
-    clf.fit(X_s, y)
-
-    # --- CV AUC（5-fold） ---
-    pipe = Pipeline([
-        ("sc",  StandardScaler()),
-        ("clf", LogisticRegression(C=1.0, class_weight="balanced",
-                                   max_iter=1000, random_state=42)),
-    ])
-    cv     = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    scores = cross_val_score(pipe, X, y, cv=cv, scoring="roc_auc")
-    cv_auc = float(scores.mean())
-    cv_std = float(scores.std())
-
-    print(f"    CV AUC: {cv_auc:.3f} ± {cv_std:.3f}")
-
-    # --- 係数の解釈（特徴量重要度） ---
-    for feat, coef in zip(features, clf.coef_[0]):
-        print(f"      {feat}: {coef:+.3f}")
+    x0, kk = _fit_wave_mle(wave, y)
+    cv_auc, cv_std = _cv_auc_wave(wave, y)
+    print(f"    変曲点(50%)={x0:.2f}m  急峻さ={kk:.2f}  "
+          f"CV-AUC={cv_auc:.3f}±{cv_std:.3f}" if cv_auc is not None
+          else f"    変曲点(50%)={x0:.2f}m  急峻さ={kk:.2f}")
+    for w in (2.0, 2.5, 3.0, 3.5):
+        z = max(-30, min(30, kk * (w - x0)))
+        print(f"      波{w:.1f}m → {round(100/(1+math.exp(-z)))}%")
 
     return {
-        "route_id":           route_id,
-        "target":             target_name,
-        "features":           features,
-        "scaler_mean":        scaler.mean_.tolist(),
-        "scaler_scale":       scaler.scale_.tolist(),
-        "coef":               clf.coef_[0].tolist(),
-        "intercept":          float(clf.intercept_[0]),
-        "threshold":          0.5,
-        "train_samples":      n_total,
-        "positive_samples":   n_pos,
-        "cancellation_rate":  round(cancel_rate, 4),
-        "cv_auc":             round(cv_auc, 4),
-        "cv_auc_std":         round(cv_std, 4),
+        "model_type":        "wave_logistic",
+        "route_id":          route_id,
+        "target":            "hs_weather_cancel",
+        "features":          ["wave_max"],
+        "wave_inflection":   round(x0, 4),
+        "wave_steepness":    round(kk, 4),
+        "train_samples":     n_total,
+        "positive_samples":  n_pos,
+        "cancellation_rate": round(cancel_rate, 4),
+        "cv_auc":            round(cv_auc, 4) if cv_auc is not None else None,
+        "cv_auc_std":        round(cv_std, 4) if cv_std is not None else None,
     }
 
 
@@ -278,38 +258,33 @@ def main():
         print(f"\n{'='*50}")
         print(f"[{route_id}] {route_name}")
 
-        df_r  = df[df["route_id"] == route_id].copy()
-        # 航路固有の特徴量セットを決定
-        route_features = ROUTE2_FEATURES if route_id == "route2" else FEATURES
-        # 基本気象データ（3列）が揃っている行のみ（route2はさらに swell_period_max も要求）
-        mask  = df_r[route_features].notna().all(axis=1)
-        df_r  = df_r[mask]
-        print(f"  気象データあり行: {len(df_r):,}  使用特徴量: {route_features}")
-
         entry = {"route_name": route_name}
 
-        # ── HS 欠航モデル ──────────────────────────────────
-        print(f"\n  [HS 欠航モデル]")
+        # route2 はデータ蓄積待ちのためモデル化しない
+        if route_id in SKIP_ROUTES:
+            print(f"  → スキップ（波高と欠航が無相関・データ蓄積待ち）")
+            entry["hs"] = None
+            all_models[route_id] = entry
+            continue
 
-        # ルールベース対象航路はロジスティック回帰をスキップしてルールを適用
-        if route_id in RULE_BASED_PARAMS:
-            print(f"    → ルールベースモデルを使用（正例不足）")
-            entry["hs"] = RULE_BASED_PARAMS[route_id]
+        df_r = df[df["route_id"] == route_id].copy()
+        # 波高あり・hs_bins_count>0・dock/equipment除外 の行に限定
+        df_hs = df_r[df_r["wave_max"].notna()]
+        df_hs = df_hs[df_hs["hs_bins_count"].fillna(0) > 0]
+        df_hs = df_hs.dropna(subset=["hs_weather_cancel"])
+        if "hs_cancel_reason" in df_hs.columns:
+            df_hs = df_hs[~df_hs["hs_cancel_reason"].astype(str).str.lower()
+                          .isin(["dock", "equipment"])]
+        print(f"  分析対象行（波高あり・weather対象）: {len(df_hs):,}")
+
+        print(f"\n  [HS 欠航モデル（波高単独）]")
+        if len(df_hs) > 0:
+            wave = df_hs["wave_max"].values.astype(float)
+            y_hs = df_hs["hs_weather_cancel"].values.astype(int)
+            entry["hs"] = train_wave_only(wave, y_hs, route_id)
         else:
-            df_hs = df_r[df_r["hs_bins_count"].fillna(0) > 0].dropna(
-                subset=["hs_weather_cancel"])
-            if len(df_hs) > 0:
-                X_hs = df_hs[route_features].values.astype(float)
-                y_hs = df_hs["hs_weather_cancel"].values.astype(int)
-                entry["hs"] = train_logistic(X_hs, y_hs, route_id, "hs_weather_cancel",
-                                             features=route_features)
-            else:
-                print("    データなし")
-                entry["hs"] = None
-
-        # ── フェリー欠航モデル: AUC低（0.644）のため廃止。HSモデルで代替。──
-        # route6の ferry_weather_cancel は欠航率68%と異常に高く、
-        # 気象以外の要因（定期メンテ等）が混在している可能性があるため除外。
+            print("    データなし")
+            entry["hs"] = None
 
         all_models[route_id] = entry
 
@@ -319,25 +294,20 @@ def main():
         json.dump(all_models, f, ensure_ascii=False, indent=2)
 
     # ── サマリー ──────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print(f"{'Route':<8} {'対象':<6} {'種別':<6} {'n':>6} {'欠航率':>7} {'スコア':>8}  評価")
-    print("-" * 58)
+    print("\n" + "=" * 64)
+    print(f"{'Route':<8} {'n':>6} {'欠航率':>7} {'変曲点':>7} {'急峻さ':>6} {'CV-AUC':>8}  評価")
+    print("-" * 64)
     for rid, route_data in all_models.items():
         m = route_data.get("hs")
         if not m:
+            print(f"{rid:<8} {'—':>6} {'—':>7} {'—':>7} {'—':>6} {'—':>8}  （モデルなし）")
             continue
-        mtype = m.get("model_type", "logistic")
-        if mtype == "rule":
-            f1 = max(m.get("f1_wave", 0), m.get("f1_wind", 0))
-            quality = "📏" if f1 >= 0.40 else "⚠"
-            print(f"{rid:<8} {'hs':<6} {'rule':<6} {'—':>6} {'—':>7} {f1:>8.3f}  {quality} (F1)")
-        else:
-            quality = ("✅" if m["cv_auc"] >= 0.80
-                       else "⚠" if m["cv_auc"] >= 0.65
-                       else "❌")
-            print(f"{rid:<8} {'hs':<6} {'lr':<6} {m['train_samples']:>6,} "
-                  f"{m['cancellation_rate']:>7.1%} {m['cv_auc']:>8.3f}  {quality} (AUC)")
-    print("=" * 60)
+        auc = m.get("cv_auc") or 0
+        quality = "✅" if auc >= 0.80 else ("⚠" if auc >= 0.65 else "❌")
+        print(f"{rid:<8} {m['train_samples']:>6,} {m['cancellation_rate']:>7.1%} "
+              f"{m['wave_inflection']:>6.2f}m {m['wave_steepness']:>6.2f} "
+              f"{auc:>8.3f}  {quality}")
+    print("=" * 64)
     print(f"\n保存完了: {OUTPUT_FILE}")
 
 

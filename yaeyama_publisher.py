@@ -143,9 +143,18 @@ def _load_model():
 
 
 def _predict_prob(model_params, wave, swell, wind, swell_period=None):
-    if not model_params or wave is None or wind is None:
+    if not model_params or wave is None:
         return None
     mtype = model_params.get("model_type", "logistic")
+    if mtype == "wave_logistic":
+        # 波高単独モデル（2026-06〜）: pct = 1/(1+exp(-k*(wave - x0)))
+        # 特徴量選択分析で全航路うねり・風速が冗長と確認されたため波高のみ。
+        x0 = model_params["wave_inflection"]
+        k  = model_params["wave_steepness"]
+        z  = max(-30.0, min(30.0, k * (wave - x0)))
+        return round(1.0 / (1.0 + math.exp(-z)), 3)
+    if wind is None:
+        return None
     if mtype == "rule":
         p = model_params
         score = 0.0
