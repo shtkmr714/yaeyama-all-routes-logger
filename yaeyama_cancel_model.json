@@ -2,22 +2,19 @@
   "route1": {
     "route_name": "大原（西表島東）",
     "hs": {
-      "model_type": "rule",
+      "model_type": "wave_logistic",
       "route_id": "route1",
       "target": "hs_weather_cancel",
       "features": [
-        "wave_max",
-        "wind_max"
+        "wave_max"
       ],
-      "wave_thr_high": 4.5,
-      "wave_thr_mid": 3.25,
-      "wind_thr": 12.0,
-      "prob_wave_high": 0.8,
-      "prob_wave_mid": 0.5,
-      "prob_wind_add": 0.2,
-      "f1_wave": 0.621,
-      "f1_wind": 0.647,
-      "note": "正例15件でロジスティック回帰スキップ。threshold_analyzerの結果に基づくルールベース。"
+      "wave_inflection": 3.8975,
+      "wave_steepness": 2.056,
+      "train_samples": 476,
+      "positive_samples": 17,
+      "cancellation_rate": 0.0357,
+      "cv_auc": 0.9011,
+      "cv_auc_std": 0.1006
     }
   },
   "route2": {
@@ -27,128 +24,91 @@
   "route3": {
     "route_name": "竹富島",
     "hs": {
-      "model_type": "rule",
+      "model_type": "wave_logistic",
       "route_id": "route3",
       "target": "hs_weather_cancel",
       "features": [
-        "wave_max",
-        "wind_max"
+        "wave_max"
       ],
-      "wave_thr_high": 3.75,
-      "wave_thr_mid": 2.5,
-      "wind_thr": 12.0,
-      "prob_wave_high": 0.9,
-      "prob_wave_mid": 0.35,
-      "prob_wind_add": 0.2,
-      "f1_wave": 0.435,
-      "f1_wind": 0.486,
-      "note": "正例18件でロジスティック回帰スキップ。wave>=3.75は精度100%（必ず欠航）。"
+      "wave_inflection": 3.6771,
+      "wave_steepness": 1.6748,
+      "train_samples": 476,
+      "positive_samples": 20,
+      "cancellation_rate": 0.042,
+      "cv_auc": 0.7473,
+      "cv_auc_std": 0.1351
     }
   },
   "route4": {
     "route_name": "黒島",
-    "hs": null
+    "hs": {
+      "model_type": "wave_logistic",
+      "route_id": "route4",
+      "target": "hs_weather_cancel",
+      "features": [
+        "wave_max"
+      ],
+      "wave_inflection": 4.6817,
+      "wave_steepness": 1.3471,
+      "train_samples": 1206,
+      "positive_samples": 53,
+      "cancellation_rate": 0.0439,
+      "cv_auc": 0.8599,
+      "cv_auc_std": 0.0604
+    }
   },
   "route5": {
     "route_name": "上原（西表島北）",
     "hs": {
+      "model_type": "wave_logistic",
       "route_id": "route5",
       "target": "hs_weather_cancel",
       "features": [
-        "wave_max",
-        "swell_max",
-        "wind_max"
+        "wave_max"
       ],
-      "scaler_mean": [
-        1.2468292682926831,
-        0.9234688346883468,
-        6.168875338753388
-      ],
-      "scaler_scale": [
-        0.6231182843770023,
-        0.4459621913671543,
-        2.2899462031204707
-      ],
-      "coef": [
-        2.428096373839649,
-        -0.8942141052197964,
-        0.5136848149542806
-      ],
-      "intercept": 0.0023540607895526726,
-      "threshold": 0.5,
-      "train_samples": 738,
-      "positive_samples": 276,
-      "cancellation_rate": 0.374,
-      "cv_auc": 0.8639,
-      "cv_auc_std": 0.0384
+      "wave_inflection": 1.4185,
+      "wave_steepness": 3.1058,
+      "train_samples": 749,
+      "positive_samples": 281,
+      "cancellation_rate": 0.3752,
+      "cv_auc": 0.8527,
+      "cv_auc_std": 0.0351
     }
   },
   "route6": {
     "route_name": "波照間島",
     "hs": {
+      "model_type": "wave_logistic",
       "route_id": "route6",
       "target": "hs_weather_cancel",
       "features": [
-        "wave_max",
-        "swell_max",
-        "wind_max"
+        "wave_max"
       ],
-      "scaler_mean": [
-        1.7345258620689656,
-        1.22625,
-        9.435883620689655
-      ],
-      "scaler_scale": [
-        0.8003050276377051,
-        0.5634940928460686,
-        3.0224502782894076
-      ],
-      "coef": [
-        2.678206315729771,
-        -0.22158727216963758,
-        -0.1770791281314735
-      ],
-      "intercept": -0.46100105688673076,
-      "threshold": 0.5,
-      "train_samples": 464,
-      "positive_samples": 126,
-      "cancellation_rate": 0.2716,
-      "cv_auc": 0.8941,
-      "cv_auc_std": 0.0153
+      "wave_inflection": 2.1381,
+      "wave_steepness": 2.7442,
+      "train_samples": 840,
+      "positive_samples": 247,
+      "cancellation_rate": 0.294,
+      "cv_auc": 0.875,
+      "cv_auc_std": 0.0137
     }
   },
   "route7": {
     "route_name": "鳩間島",
     "hs": {
+      "model_type": "wave_logistic",
       "route_id": "route7",
       "target": "hs_weather_cancel",
       "features": [
-        "wave_max",
-        "swell_max",
-        "wind_max"
+        "wave_max"
       ],
-      "scaler_mean": [
-        1.7983333333333336,
-        1.408125,
-        7.922499999999999
-      ],
-      "scaler_scale": [
-        0.9026519570441065,
-        0.6759535124856344,
-        2.397922277722946
-      ],
-      "coef": [
-        -0.19197731692755376,
-        1.6661893683592566,
-        0.9575884993534973
-      ],
-      "intercept": 0.16228689347174813,
-      "threshold": 0.5,
-      "train_samples": 96,
-      "positive_samples": 45,
-      "cancellation_rate": 0.4688,
-      "cv_auc": 0.9115,
-      "cv_auc_std": 0.0724
+      "wave_inflection": 1.6375,
+      "wave_steepness": 3.2795,
+      "train_samples": 1198,
+      "positive_samples": 496,
+      "cancellation_rate": 0.414,
+      "cv_auc": 0.9308,
+      "cv_auc_std": 0.0239
     }
   }
 }
