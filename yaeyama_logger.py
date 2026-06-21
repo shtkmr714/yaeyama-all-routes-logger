@@ -639,7 +639,9 @@ def log_daily_records():
         b = [_bin_operated(bins, i) for i in range(6)]
 
         # 気象欠航：1便以上✕かつ理由がweather
-        has_cancel     = any(b[i] == 0 for i in range(len(bins)))
+        # 注: b は表の hs_bin1〜6 用に6便固定。竹富島など7便以上の航路では
+        #     b[i] (i>=6) が IndexError になるため、全便は _bin_operated で直接判定する。
+        has_cancel     = any(_bin_operated(bins, i) == 0 for i in range(len(bins)))
         hs_w_cancel    = 1 if has_cancel and op["hs_cancel_reason"] == "weather" else 0
         ferry_w_cancel = 1 if (op["ferry_operated"] == 0 and op["ferry_cancel_reason"] == "weather") else 0
 
