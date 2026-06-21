@@ -382,7 +382,10 @@ def main():
             bins = op["hs_bins"]
             b    = [_bin_operated(bins, i) for i in range(6)]
 
-            has_cancel  = any(x == 0 for x in b)
+            # b は表カラム hs_bin1〜6 用に 6 便固定。竹富(8便)等 7 便以上の航路では
+            # b[6] 以降が存在しないため、全便の欠航判定は _bin_operated で直接行う。
+            # （6便固定の any(x==0 for x in b) だと 7 便目以降の欠航を取りこぼす）
+            has_cancel  = any(_bin_operated(bins, i) == 0 for i in range(len(bins)))
             hs_w_cancel = 1 if has_cancel and op["hs_cancel_reason"] == "weather" else 0
             fw_cancel   = 1 if op["ferry_operated"] == 0 and op["ferry_cancel_reason"] == "weather" else 0
 
