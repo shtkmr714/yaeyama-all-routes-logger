@@ -717,6 +717,10 @@ if __name__ == "__main__":
         from yaeyama_publisher import run_yaeyama_publisher
         run_yaeyama_publisher(route_data_list, cancel_models, caution_text=caution_text)
     except Exception as e:
-        print(f"  [警告] Instagram投稿エラー: {e}")
+        # 握り潰すと投稿が止まっても success のままになり気づけない。
+        # 通知は publisher 側で送っているので、ここではジョブを失敗させる。
+        import traceback; traceback.print_exc()
+        print(f"  [エラー] 八重山: Instagram投稿に失敗しました: {e}")
+        raise
 
     print("\n完了。")
