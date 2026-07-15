@@ -819,7 +819,7 @@ def _post_to_instagram(image_urls, caption):
         media_ids = []
         for img_url in image_urls:
             resp = requests.post(
-                f"https://graph.facebook.com/v25.0/{user_id}/media",
+                f"https://graph.instagram.com/v25.0/{user_id}/media",
                 params={"image_url": img_url, "is_carousel_item": "true",
                         "access_token": access_token}
             )
@@ -831,7 +831,7 @@ def _post_to_instagram(image_urls, caption):
             print(f"  メディアコンテナ: {data['id']}")
 
         resp = requests.post(
-            f"https://graph.facebook.com/v25.0/{user_id}/media",
+            f"https://graph.instagram.com/v25.0/{user_id}/media",
             params={"media_type": "CAROUSEL", "children": ",".join(media_ids),
                     "caption": caption, "access_token": access_token}
         )
@@ -845,7 +845,7 @@ def _post_to_instagram(image_urls, caption):
         time.sleep(30)
 
         resp = requests.post(
-            f"https://graph.facebook.com/v25.0/{user_id}/media_publish",
+            f"https://graph.instagram.com/v25.0/{user_id}/media_publish",
             params={"creation_id": carousel_id, "access_token": access_token}
         )
         data = resp.json()
