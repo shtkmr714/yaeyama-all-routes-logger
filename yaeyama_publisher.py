@@ -644,8 +644,10 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path, routes
         cy    = row_y + ROW_A_H // 2
 
         if idx % 2 == 1:
+            # 交互行の帯。RGB画像なのでRGBA(白+alpha)は不透明白になり文字が読めなくなる。
+            # 背景(#0A1628)より僅かに明るいネイビーの実色で薄く帯を敷く。
             draw.rectangle([(RX, row_y), (1040, row_y + ROW_A_H)],
-                           fill=(255, 255, 255, 10))
+                           fill=(20, 34, 56))
         draw.line([(RX, row_y), (1040, row_y)],
                   fill=(255, 255, 255, 22), width=1)
 
@@ -700,7 +702,7 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path, routes
 
         if idx % 2 == 1:
             draw.rectangle([(RX, row_y), (1040, row_y + ROW_B_H)],
-                           fill=(255, 255, 255, 8))
+                           fill=(20, 34, 56))
         draw.line([(RX, row_y), (1040, row_y)],
                   fill=(255, 255, 255, 18), width=1)
 
