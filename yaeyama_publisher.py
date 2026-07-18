@@ -24,6 +24,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
+import iriomote_images  # 西表島の専用テンプレ描画（短期・長期）
+
 JST = ZoneInfo("Asia/Tokyo")
 
 # ============================================================
@@ -289,9 +291,10 @@ def _pct(prob):
     return max(1, min(int(round(prob * 100)), 99))  # 1〜99%（0%/100%は確定表現を避ける）
 
 
-def _max_pct(probs_by_route, day_indices):
+def _max_pct(probs_by_route, day_indices, routes=None):
+    routes = routes or MODEL_ROUTES
     vals = []
-    for rid in MODEL_ROUTES:
+    for rid in routes:
         for i in day_indices:
             p = probs_by_route.get(rid, [None] * 7)
             if i < len(p) and p[i] is not None:
@@ -369,10 +372,11 @@ def _fonts():
     }
 
 
-def make_image_short(probs_by_route, output_path):
-    """画像①: 短期予報（5航路 × 明日/明後日）"""
+def make_image_short(probs_by_route, output_path, routes=None):
+    """画像①: 短期予報（航路 × 明日/明後日）。routes未指定なら全5航路。"""
+    routes   = routes or MODEL_ROUTES
     now      = datetime.now(JST)
-    max_risk = _max_pct(probs_by_route, [1, 2])
+    max_risk = _max_pct(probs_by_route, [1, 2], routes)
     img  = Image.new("RGB", IMG_SIZE, color=_hex_to_rgb(_get_bg_color(max_risk)))
     draw = ImageDraw.Draw(img)
     f    = _fonts()
@@ -410,10 +414,10 @@ def make_image_short(probs_by_route, output_path):
     draw.line([(360, 118), (360, 960)], fill=(255,255,255,50), width=1)
     draw.line([(710, 118), (710, 960)], fill=(255,255,255,50), width=1)
 
-    # 航路行（5行）
+    # 航路行（可変・利用可能な縦幅を等分）
     ROW_TOP = 210
-    ROW_H   = 148
-    for idx, rid in enumerate(MODEL_ROUTES):
+    ROW_H   = (952 - ROW_TOP) // max(len(routes), 1)
+    for idx, rid in enumerate(routes):
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 8)
         pct1  = _pct(probs[1])
@@ -436,10 +440,10 @@ def make_image_short(probs_by_route, output_path):
                 draw.text((col_x, cy - 12), "—",
                           font=f["pct_sm"], fill=(200,200,200), anchor="mm")
 
-    draw.line([(60, ROW_TOP + 5 * ROW_H), (1020, ROW_TOP + 5 * ROW_H)],
+    draw.line([(60, ROW_TOP + len(routes) * ROW_H), (1020, ROW_TOP + len(routes) * ROW_H)],
               fill=(255,255,255,35), width=1)
 
-    FOOTER_Y = ROW_TOP + 5 * ROW_H + 20
+    FOOTER_Y = ROW_TOP + len(routes) * ROW_H + 20
     draw.text((540, FOOTER_Y + 18), "※AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。",
               font=f["xs"], fill=(255,255,255,140), anchor="mm")
     draw.text((540, FOOTER_Y + 38), "*AI estimates. Check Anei Kanko official for cancellations.",
@@ -449,11 +453,12 @@ def make_image_short(probs_by_route, output_path):
     print(f"  画像①保存: {output_path}")
 
 
-def make_image_longterm(probs_by_route, output_path):
+def make_image_longterm(probs_by_route, output_path, routes=None):
     """
-    画像②: 長期予報（3〜7日先）
-    レイアウト: 5航路（行）× 5日（列）のテーブル形式
+    画像②: 長期予報（3〜7日先）。routes未指定なら全5航路。
+    レイアウト: 航路（行）× 5日（列）のテーブル形式
     """
+    routes = routes or MODEL_ROUTES
     now    = datetime.now(JST)
     DAY_JA = ["月","火","水","木","金","土","日"]
     DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
@@ -465,7 +470,7 @@ def make_image_longterm(probs_by_route, output_path):
 
     # 全セルのリスク値（5routes × 5days）
     all_pcts = []
-    for rid in MODEL_ROUTES:
+    for rid in routes:
         probs = probs_by_route.get(rid, [None] * 8)
         for delta in lt_deltas:
             p = _pct(probs[delta]) if delta < len(probs) else None
@@ -494,7 +499,7 @@ def make_image_longterm(probs_by_route, output_path):
     HDR_Y    = 118         # ヘッダー行トップ
     HDR_H    = 72
     ROW_Y0   = HDR_Y + HDR_H  # データ行開始 y = 190
-    ROW_H    = 150
+    ROW_H    = 750 // max(len(routes), 1)   # 利用可能高さ(750px)を航路数で等分
 
     # ヘッダー行背景
     draw.rectangle([(TBL_X, HDR_Y), (TBL_X + TBL_W, HDR_Y + HDR_H)],
@@ -512,16 +517,17 @@ def make_image_longterm(probs_by_route, output_path):
                   fill=(255,255,255,170), anchor="mm")
 
     # ── 縦罫線 ──
+    _tbl_btm = ROW_Y0 + len(routes) * ROW_H
     for ci in range(6):
         lx = TBL_X + LABEL_W + ci * COL_W
-        draw.line([(lx, HDR_Y), (lx, ROW_Y0 + 5 * ROW_H)],
+        draw.line([(lx, HDR_Y), (lx, _tbl_btm)],
                   fill=(255,255,255,45), width=1)
     # ラベル列右端罫線
-    draw.line([(TBL_X + LABEL_W, HDR_Y), (TBL_X + LABEL_W, ROW_Y0 + 5 * ROW_H)],
+    draw.line([(TBL_X + LABEL_W, HDR_Y), (TBL_X + LABEL_W, _tbl_btm)],
               fill=(255,255,255,70), width=1)
 
     # ── 航路行 ──
-    for ri, rid in enumerate(MODEL_ROUTES):
+    for ri, rid in enumerate(routes):
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 8)
         row_y = ROW_Y0 + ri * ROW_H
@@ -564,7 +570,7 @@ def make_image_longterm(probs_by_route, output_path):
     print(f"  画像②保存: {output_path}")
 
 
-def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
+def make_image_weatherdata(probs_by_route, batched_forecast, output_path, routes=None):
     """
     画像③: 予報根拠データ
     - セクションA: 明日 + 明後日 の5航路 × 波高/うねり/風速（欠航リスク%は表示しない）
@@ -628,9 +634,10 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
                       font=_load_font(FONT_REGULAR, 13), fill="#5585B5", anchor="mm")
 
     # データ行 (y=194〜 )
+    routes = routes or MODEL_ROUTES
     ROW_A_Y = HDR_COL_Y + HDR_COL_H; ROW_A_H = 84
 
-    for idx, rid in enumerate(MODEL_ROUTES):
+    for idx, rid in enumerate(routes):
         info  = ROUTE_INFO[rid]
         days8 = batched_forecast.get((info["lat"], info["lon"]), [{}] * 8)
         row_y = ROW_A_Y + idx * ROW_A_H
@@ -659,7 +666,7 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
                 draw.text((cx, cy), _fmt(val),
                           font=_load_font(FONT_BOLD, 24), fill=col, anchor="mm")
 
-    SEC_A_BTM = ROW_A_Y + 5 * ROW_A_H   # 194 + 420 = 614
+    SEC_A_BTM = ROW_A_Y + len(routes) * ROW_A_H
     draw.line([(RX, SEC_A_BTM), (1040, SEC_A_BTM)],
               fill=(255, 255, 255, 28), width=1)
 
@@ -685,7 +692,7 @@ def make_image_weatherdata(probs_by_route, batched_forecast, output_path):
 
     ROW_B_Y = HDR_B_Y + HDR_B_H; ROW_B_H = 50
 
-    for idx, rid in enumerate(MODEL_ROUTES):
+    for idx, rid in enumerate(routes):
         info  = ROUTE_INFO[rid]
         days8 = batched_forecast.get((info["lat"], info["lon"]), [{}] * 8)
         row_y = ROW_B_Y + idx * ROW_B_H
@@ -841,8 +848,9 @@ def _post_slot(now):
     return "afternoon" if now.hour >= 12 else "morning"
 
 
-def _post_key(now):
-    return f"{now.strftime('%Y-%m-%d')}_{_post_slot(now)}"
+def _post_key(now, unit="all"):
+    # 投稿単位（西表/その他）ごとに別キー。片方の投稿がもう片方を塞がないようにする。
+    return f"{now.strftime('%Y-%m-%d')}_{_post_slot(now)}_{unit}"
 
 
 def _post_state_api():
@@ -870,7 +878,7 @@ def _read_post_state():
     return state, body["sha"]
 
 
-def _already_posted(now):
+def _already_posted(now, unit="all"):
     if os.environ.get("FORCE_POST") == "1":
         print("  [重複ガード] FORCE_POST=1 のため判定をスキップ")
         return False
@@ -883,21 +891,27 @@ def _already_posted(now):
     if state is None:
         print("  [重複ガード] GITHUB_TOKEN 未設定のため判定不能（投稿を継続します）")
         return False
-    return state.get("last_post_key") == _post_key(now)
+    # state = {"iriomote": {...}, "others": {...}}。旧フラット形式は unit キーが無く未投稿扱い（安全側）。
+    return state.get(unit, {}).get("last_post_key") == _post_key(now, unit)
 
 
-def _mark_posted(now, post_id):
-    """投稿成功を記録する。ここが失敗しても投稿自体は成功しているのでジョブは落とさない。"""
+def _mark_posted(now, unit, post_id):
+    """投稿成功を投稿単位ごとに記録する。ここが失敗しても投稿自体は成功しているのでジョブは落とさない。"""
     try:
-        _, sha = _read_post_state()
-        payload = {
-            "last_post_key": _post_key(now),
+        state, sha = _read_post_state()
+        if not isinstance(state, dict):
+            state = {}
+        # 旧フラット形式が入っていても unit キーで上書きすれば以後は正しい入れ子になる
+        if "last_post_key" in state:
+            state = {}
+        state[unit] = {
+            "last_post_key": _post_key(now, unit),
             "posted_at": now.strftime("%Y-%m-%d %H:%M:%S"),
             "post_id": post_id,
         }
-        body = json.dumps(payload, ensure_ascii=False, indent=2)
+        body = json.dumps(state, ensure_ascii=False, indent=2)
         content = base64.b64encode((body + chr(10)).encode()).decode()
-        data = {"message": f"Auto: last_post {_post_key(now)}",
+        data = {"message": f"Auto: last_post {_post_key(now, unit)}",
                 "content": content, "branch": "main"}
         if sha:
             data["sha"] = sha
@@ -906,7 +920,7 @@ def _mark_posted(now, post_id):
         if resp.status_code not in (200, 201):
             print(f"  [警告] 投稿状態の記録に失敗: HTTP {resp.status_code}")
         else:
-            print(f"  [重複ガード] 投稿済みとして記録: {_post_key(now)}")
+            print(f"  [重複ガード] 投稿済みとして記録: {_post_key(now, unit)}")
     except Exception as e:
         print(f"  [警告] 投稿状態の記録に失敗（投稿自体は成功）: {e}")
 
@@ -1089,16 +1103,25 @@ def _is_notable_caution(text):
     return any(kw in text for kw in _CAUTION_KEYWORDS)
 
 
-def _build_caption(probs_by_route, now, caution_text=None, suspensions=None):
+def _build_caption(probs_by_route, now, routes=None, header_ja=None, header_en=None,
+                   hashtags=None, caution_text=None, suspensions=None):
+    routes = routes or MODEL_ROUTES
     tmr    = now + timedelta(days=1)
     DAY_JA = ["月","火","水","木","金","土","日"]
     DAY_EN = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
     MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     suspensions = suspensions or []
 
+    header_ja = header_ja or "🚢 八重山航路（石垣島発着便）欠航リスク予報"
+    header_en = header_en or "🚢 Yaeyama Routes (Ishigaki-based)  Cancellation Risk"
+    hashtags = hashtags or [
+        "#八重山 #石垣島 #西表島 #波照間島 #竹富島 #欠航予報",
+        "#YaeyamaIslands #OkinawaFerry #JapanTravel #IslandHopping",
+    ]
+
     lines = [
-        f"🚢 八重山航路（石垣島発着便）欠航リスク予報  {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})",
-        f"🚢 Yaeyama Routes (Ishigaki-based)  Cancellation Risk  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})",
+        f"{header_ja}  {tmr.month}/{tmr.day}({DAY_JA[tmr.weekday()]})",
+        f"{header_en}  {MON_EN[tmr.month-1]} {tmr.day} ({DAY_EN[tmr.weekday()]})",
         "",
     ]
     # 計画運休（期限内のものだけ表示）
@@ -1108,7 +1131,7 @@ def _build_caption(probs_by_route, now, caution_text=None, suspensions=None):
             f"{s['end'][5:].replace('-','/')} {s['reason_ja']}運休中 / "
             f"{s['vessel_en']} Suspended ({s['reason_en']})"
         )
-    for rid in MODEL_ROUTES:
+    for rid in routes:
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 7)
         pct1  = _pct(probs[1])
@@ -1129,10 +1152,75 @@ def _build_caption(probs_by_route, now, caution_text=None, suspensions=None):
         "⚠️ AI予測・参考値。欠航判断は安栄観光公式HPをご確認ください。",
         "⚠️ AI estimates only. Check Anei Kanko official site for cancellations.",
         "",
-        "#八重山 #石垣島 #西表島 #波照間島 #竹富島 #欠航予報",
-        "#YaeyamaIslands #OkinawaFerry #JapanTravel #IslandHopping",
-    ]
+    ] + list(hashtags)
     return "\n".join(lines)
+
+
+# ============================================================
+# 西表島（新テンプレ）用データ構築
+# ============================================================
+_R_UEHARA = "route5"   # 上原（西表島北）
+_R_OHARA = "route1"    # 大原（西表島東）
+
+
+def _build_iriomote_data(probs_by_route, now):
+    """probs_by_route から西表テンプレ用の (短期cards, 長期period, 上原rows, 大原rows) を作る。
+    八重山モデルは日次1値のみ。短期カードは上原/大原それぞれ「その日の欠航%」を1つ表示する。"""
+    DAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
+    DAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    MON_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    u = probs_by_route.get(_R_UEHARA, [None] * 8)
+    o = probs_by_route.get(_R_OHARA, [None] * 8)
+
+    def pct(lst, i):
+        return _pct(lst[i]) if i < len(lst) else None
+
+    # ── 短期（明日=day1 / 明後日=day2）──
+    cards = []
+    for delta, lj, le in [(1, "明日", "TOMORROW"), (2, "明後日", "DAY AFTER")]:
+        dt = now + timedelta(days=delta)
+        up, op = pct(u, delta), pct(o, delta)
+        head = max([p for p in (up, op) if p is not None], default=0)
+        cards.append({
+            "label_ja": lj,
+            "date_label": f"{dt.month}/{dt.day}",
+            "label_en": le,
+            "headline_pct": head,
+            "routes": [
+                {"name_ja": "上原航路", "name_en": "Uehara Route",
+                 "pct": up or 0, "suspended": False, "color": iriomote_images.COL_UEHARA},
+                {"name_ja": "大原航路", "name_en": "Ohara Route",
+                 "pct": op or 0, "suspended": False, "color": iriomote_images.COL_OHARA},
+            ],
+        })
+
+    # ── 長期（明日〜7日後の7日間。テンプレのバーパネルは7行）──
+    deltas = list(range(1, 8))
+    def rows(lst):
+        r = []
+        for d in deltas:
+            dt = now + timedelta(days=d)
+            r.append({
+                "date_ja": f"{dt.month}/{dt.day}({DAY_JA[dt.weekday()]})",
+                "date_en": DAY_EN[dt.weekday()],
+                "pct": pct(lst, d),
+                "suspended": False,
+            })
+        return r
+
+    uehara_rows = rows(u)
+    ohara_rows = rows(o)
+    d1, d7 = now + timedelta(days=1), now + timedelta(days=7)
+    u_vals = [x for x in (pct(u, d) for d in deltas) if x is not None]
+    o_vals = [x for x in (pct(o, d) for d in deltas) if x is not None]
+    period = {
+        "start": f"{d1.month}/{d1.day}", "end": f"{d7.month}/{d7.day}",
+        "start_en": f"{MON_EN[d1.month-1]} {d1.day}", "end_en": f"{MON_EN[d7.month-1]} {d7.day}",
+        "uehara_max": max(u_vals, default=0),
+        "ohara_max": max(o_vals, default=0),
+    }
+    return cards, period, uehara_rows, ohara_rows
 
 
 # ============================================================
@@ -1159,62 +1247,102 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
     # [P1b] Slack アラート（61%以上の場合のみ）
     _send_slack_alert(probs_by_route, now)
 
-    # [P2] 画像生成
-    print("\n[P2] 画像生成中...")
-    output_dir = "/tmp/yaeyama_images"
-    os.makedirs(output_dir, exist_ok=True)
-    ts    = now.strftime("%Y%m%d_%H%M")
-    paths = [
-        f"{output_dir}/ya_img1_short_{ts}.png",
-        f"{output_dir}/ya_img2_longterm_{ts}.png",
-        f"{output_dir}/ya_img3_weatherdata_{ts}.png",
-    ]
-    make_image_short(probs_by_route,                paths[0])
-    make_image_longterm(probs_by_route,             paths[1])
-    make_image_weatherdata(probs_by_route, batched, paths[2])
-
-    # [P3] GitHub Pages へアップロード（常に実行・プレビュー用）
-    print("\n[P3] GitHub Pages へ画像アップロード中...")
-    image_urls = _upload_images_to_github(paths)
-
-    # [P4] キャプション & Instagram 投稿
     if caution_text and _is_notable_caution(caution_text):
         print(f"  [お知らせ] 重要caution_text検出: {caution_text[:60]}...")
-    caption = _build_caption(probs_by_route, now, caution_text=caution_text,
-                             suspensions=suspensions)
 
-    # 午後便（12時以降）は欠航リスクが高い場合のみInstagram投稿（座間味と同じロジック）
-    # 条件: 短期（明日・明後日）+ 長期（3〜6日先）全期間のいずれかで欠航確率 61% 以上
+    output_dir = "/tmp/yaeyama_images"
+    os.makedirs(output_dir, exist_ok=True)
+    ts = now.strftime("%Y%m%d_%H%M")
     is_afternoon_run = now.hour >= 12
-    if is_afternoon_run:
-        max_pct = max(
-            (_pct(probs_by_route.get(rid, [None] * 7)[i]) or 0)
-            for rid in MODEL_ROUTES
-            for i in range(1, 7)   # 明日〜6日後（全予報期間）
+
+    # 投稿単位: 西表島（新テンプレ独立）＋ その他3島（従来テーブル）
+    UNITS = [
+        {
+            "key": "iriomote", "kind": "iriomote",
+            "routes": [_R_UEHARA, _R_OHARA],   # 上原, 大原
+            "label": "西表島",
+            "header_ja": "🚢 石垣島⇔西表島（上原・大原）欠航リスク予報",
+            "header_en": "🚢 Ishigaki ⇔ Iriomote (Uehara / Ohara)  Cancellation Risk",
+            "hashtags": [
+                "#八重山 #石垣島 #西表島 #上原 #大原 #欠航予報",
+                "#Iriomote #YaeyamaIslands #OkinawaFerry #JapanTravel",
+            ],
+        },
+        {
+            "key": "others", "kind": "table",
+            "routes": ["route3", "route6", "route7"],   # 竹富, 波照間, 鳩間
+            "label": "八重山（竹富・波照間・鳩間）",
+            "header_ja": "🚢 八重山（竹富・波照間・鳩間）欠航リスク予報",
+            "header_en": "🚢 Yaeyama (Taketomi / Hateruma / Hatoma)  Cancellation Risk",
+            "hashtags": [
+                "#八重山 #石垣島 #竹富島 #波照間島 #鳩間島 #欠航予報",
+                "#YaeyamaIslands #OkinawaFerry #JapanTravel #IslandHopping",
+            ],
+        },
+    ]
+
+    any_failed = False
+    for u in UNITS:
+        key, rts = u["key"], u["routes"]
+        print(f"\n===== 投稿単位: {u['label']} =====")
+
+        # 午後便（12時以降）は高リスク時のみ投稿（投稿単位ごとに判定）
+        if is_afternoon_run:
+            max_pct = max(
+                (_pct(probs_by_route.get(rid, [None] * 8)[i]) or 0)
+                for rid in rts for i in range(1, 8)
+            )
+            if max_pct < 61:
+                print(f"  [午後便] {u['label']} 最大リスク {max_pct}% < 61% → 投稿スキップ")
+                continue
+            print(f"  [午後便] {u['label']} 最大リスク {max_pct}% ≥ 61% → 投稿実行")
+
+        # 重複ガード（この日この枠でこの単位を投稿済みならスキップ）
+        if _already_posted(now, key):
+            print(f"  [スキップ] {_post_key(now, key)} はすでに投稿済み（重複起動）")
+            continue
+
+        # 画像生成
+        print(f"  [画像生成] {u['label']}")
+        p1 = f"{output_dir}/{key}_img1_short_{ts}.png"
+        p2 = f"{output_dir}/{key}_img2_longterm_{ts}.png"
+        p3 = f"{output_dir}/{key}_img3_weatherdata_{ts}.png"
+        if u["kind"] == "iriomote":
+            cards, period, uehara_rows, ohara_rows = _build_iriomote_data(probs_by_route, now)
+            iriomote_images.make_iriomote_short(cards, p1)
+            iriomote_images.make_iriomote_long(period, uehara_rows, ohara_rows, p2)
+            make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
+        else:
+            make_image_short(probs_by_route, p1, routes=rts)
+            make_image_longterm(probs_by_route, p2, routes=rts)
+            make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
+
+        # GitHub Pages へアップロード
+        image_urls = _upload_images_to_github([p1, p2, p3])
+
+        caption = _build_caption(
+            probs_by_route, now, routes=rts,
+            header_ja=u["header_ja"], header_en=u["header_en"], hashtags=u["hashtags"],
+            caution_text=caution_text, suspensions=suspensions,
         )
-        if max_pct < 61:
-            print(f"  [午後便] 全期間・全航路最大欠航リスク {max_pct}% < 61% → Instagram投稿スキップ")
-            print("\n✅ Yaeyama Publisher 完了")
-            return
-        print(f"  [午後便] 最大欠航リスク {max_pct}% ≥ 61% → Instagram投稿実行")
 
-    print(f"\n[P4] Instagram 投稿中...")
-    if _already_posted(now):
-        print(f"  [スキップ] {_post_key(now)} はすでに投稿済み（重複起動）")
-        print("\n✅ Yaeyama Publisher 完了")
-        return
+        # Instagram 投稿
+        print(f"  [投稿] {u['label']}")
+        try:
+            post_id = _post_to_instagram(image_urls, caption)
+        except Exception as e:
+            # 握り潰すと投稿停止に気づけない。片方が失敗してももう片方は試し、最後にジョブを失敗させる。
+            traceback.print_exc()
+            _alert_slack(f"八重山[{u['label']}]: Instagram投稿に失敗しました: {e}")
+            any_failed = True
+            continue
 
-    try:
-        post_id = _post_to_instagram(image_urls, caption)
-    except Exception as e:
-        # 握り潰すとトークン失効などで投稿が止まっても success のままになり気づけない。
-        traceback.print_exc()
-        _alert_slack(f"八重山: Instagram投稿に失敗しました: {e}")
-        raise
+        # スキップ時は post_id が None。記録すると fallback が塞がるので投稿できた時だけ記録する。
+        if post_id:
+            _mark_posted(now, key, post_id)
 
-    # スキップ時は post_id が None。記録すると fallback が塞がるので投稿できた時だけ記録する。
-    if post_id:
-        _mark_posted(now, post_id)
+    if any_failed:
+        raise RuntimeError("八重山: 一部の投稿に失敗しました（詳細は上記ログ / Slack）")
 
     print("\n✅ Yaeyama Publisher 完了")
 
