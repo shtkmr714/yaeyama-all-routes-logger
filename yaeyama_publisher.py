@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
 import iriomote_images  # 西表島の専用テンプレ描画（短期・長期）
+import others_images     # その他3島（竹富・波照間・鳩間）の洗練テンプレ描画
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -1243,6 +1244,66 @@ def _build_iriomote_data(probs_by_route, now):
 
 
 # ============================================================
+# その他3島（竹富・波照間・鳩間）用データ構築
+# ============================================================
+_R_OTHERS = ["route3", "route6", "route7"]   # 竹富, 波照間, 鳩間
+
+
+def _build_others_data(probs_by_route, now):
+    """probs_by_route から その他3島テンプレ用の (短期cards, 長期period, islands) を作る。
+    短期=明日/明後日、長期=3〜7日先の5日間。リスク期間判定は西表・座間味と同じ閾値。"""
+    DAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
+    DAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    MON_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    def pct(rid, i):
+        p = probs_by_route.get(rid, [None] * 8)
+        return _pct(p[i]) if i < len(p) else None
+
+    # ── 短期（明日=day1 / 明後日=day2）──
+    cards = []
+    for delta, lj, le in [(1, "明日", "TOMORROW"), (2, "明後日", "DAY AFTER")]:
+        dt = now + timedelta(days=delta)
+        isls = []
+        for rid in _R_OTHERS:
+            info = ROUTE_INFO[rid]
+            isls.append({"name_ja": info["island_ja"], "name_en": info["island_en"],
+                         "pct": pct(rid, delta) or 0, "suspended": False})
+        head = max([i["pct"] for i in isls], default=0)
+        cards.append({"label_ja": lj, "date_label": f"{dt.month}/{dt.day}",
+                      "label_en": le, "headline_pct": head, "islands": isls})
+
+    # ── 長期（3〜7日先の5日間）──
+    deltas = list(range(3, 8))
+    islands = []
+    for rid in _R_OTHERS:
+        info = ROUTE_INFO[rid]
+        rows = []
+        for d in deltas:
+            dt = now + timedelta(days=d)
+            rows.append({"date_ja": f"{dt.month}/{dt.day}({DAY_JA[dt.weekday()]})",
+                         "date_en": DAY_EN[dt.weekday()], "pct": pct(rid, d), "suspended": False})
+        islands.append({"name_ja": info["island_ja"], "name_en": info["island_en"], "rows": rows})
+
+    # リスク期間: いずれかの島の欠航% >= 31% の日
+    risk_dates = []
+    for d in deltas:
+        day_max = max([pct(rid, d) or 0 for rid in _R_OTHERS], default=0)
+        if day_max >= _LT_RISK_THRESHOLD:
+            risk_dates.append(now + timedelta(days=d))
+    overall_max = max([pct(rid, d) or 0 for rid in _R_OTHERS for d in deltas], default=0)
+    period = {"has_risk": bool(risk_dates), "max_pct": overall_max}
+    if risk_dates:
+        rs, re = risk_dates[0], risk_dates[-1]
+        period.update({
+            "start": f"{rs.month}/{rs.day}", "end": f"{re.month}/{re.day}",
+            "start_en": f"{MON_EN[rs.month-1]} {rs.day}",
+            "end_en": f"{MON_EN[re.month-1]} {re.day}",
+        })
+    return cards, period, islands
+
+
+# ============================================================
 # メイン
 # ============================================================
 
@@ -1332,8 +1393,9 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
             iriomote_images.make_iriomote_long(period, uehara_rows, ohara_rows, p2)
             make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
         else:
-            make_image_short(probs_by_route, p1, routes=rts)
-            make_image_longterm(probs_by_route, p2, routes=rts)
+            o_cards, o_period, o_islands = _build_others_data(probs_by_route, now)
+            others_images.make_others_short(o_cards, p1)
+            others_images.make_others_long(o_period, o_islands, p2)
             make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
 
         # GitHub Pages へアップロード
