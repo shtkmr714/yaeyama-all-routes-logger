@@ -1195,8 +1195,8 @@ def _build_iriomote_data(probs_by_route, now):
             ],
         })
 
-    # ── 長期（明日〜7日後の7日間。テンプレのバーパネルは7行）──
-    deltas = list(range(1, 8))
+    # ── 長期（3〜7日先の5日間。短期カードが明日・明後日を担うため重複させない）──
+    deltas = list(range(3, 8))
     def rows(lst):
         r = []
         for d in deltas:
@@ -1211,12 +1211,14 @@ def _build_iriomote_data(probs_by_route, now):
 
     uehara_rows = rows(u)
     ohara_rows = rows(o)
-    d1, d7 = now + timedelta(days=1), now + timedelta(days=7)
+    d_start = now + timedelta(days=deltas[0])
+    d_end = now + timedelta(days=deltas[-1])
     u_vals = [x for x in (pct(u, d) for d in deltas) if x is not None]
     o_vals = [x for x in (pct(o, d) for d in deltas) if x is not None]
     period = {
-        "start": f"{d1.month}/{d1.day}", "end": f"{d7.month}/{d7.day}",
-        "start_en": f"{MON_EN[d1.month-1]} {d1.day}", "end_en": f"{MON_EN[d7.month-1]} {d7.day}",
+        "start": f"{d_start.month}/{d_start.day}", "end": f"{d_end.month}/{d_end.day}",
+        "start_en": f"{MON_EN[d_start.month-1]} {d_start.day}",
+        "end_en": f"{MON_EN[d_end.month-1]} {d_end.day}",
         "uehara_max": max(u_vals, default=0),
         "ohara_max": max(o_vals, default=0),
     }

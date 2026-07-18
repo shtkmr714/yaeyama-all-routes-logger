@@ -255,7 +255,8 @@ LT_PCT_R = (1037, 542)       # 大原の最大%中央
 LT_PANEL_L = (108, 720, 612, 998)
 LT_PANEL_R = (652, 720, 1170, 998)
 LT_ROW_Y0 = 742
-LT_ROW_STEP = 39
+LT_ROW_BOTTOM = 976   # 最終行の中心。この範囲(742〜976)に行数ぶんを均等配置する。
+LT_ROW_STEP = 39      # 7行時の実測ステップ（後方互換の目安）
 
 
 def _bar(draw, x0, x1, y, pct, suspended, f_pct, f_susp, f_susp_en):
@@ -341,6 +342,9 @@ def make_iriomote_long(period, uehara, ohara, output_path):
     for (px0, py0, px1, py1) in (LT_PANEL_L, LT_PANEL_R):
         draw.rounded_rectangle([(px0 + 3, py0), (px1 - 3, py1)], radius=24, fill=PANEL_BG)
 
+    n_rows = max(len(uehara), len(ohara), 1)
+    row_step = (LT_ROW_BOTTOM - LT_ROW_Y0) / (n_rows - 1) if n_rows > 1 else 0
+
     def render_panel(panel, rows):
         px0 = panel[0]
         date_x = px0 + 4
@@ -348,7 +352,7 @@ def make_iriomote_long(period, uehara, ohara, output_path):
         bar_x0 = px0 + 150
         bar_x1 = px0 + 400
         for i, r in enumerate(rows):
-            y = LT_ROW_Y0 + i * LT_ROW_STEP
+            y = int(LT_ROW_Y0 + i * row_step)
             draw.text((date_x, y), r["date_ja"], font=f_row_ja, fill=(40, 44, 50), anchor="lm")
             draw.text((en_x, y), r["date_en"], font=f_row_en, fill=(120, 124, 130), anchor="lm")
             _bar(draw, bar_x0, bar_x1, y, r.get("pct"), r.get("suspended", False),
