@@ -1161,6 +1161,8 @@ def _build_caption(probs_by_route, now, routes=None, header_ja=None, header_en=N
 # ============================================================
 _R_UEHARA = "route5"   # 上原（西表島北）
 _R_OHARA = "route1"    # 大原（西表島東）
+# リスク期間の判定閾値（座間味 forecast_publisher と統一：31%=MID以上でリスク日）
+_LT_RISK_THRESHOLD = 31
 
 
 def _build_iriomote_data(probs_by_route, now):
@@ -1211,17 +1213,30 @@ def _build_iriomote_data(probs_by_route, now):
 
     uehara_rows = rows(u)
     ohara_rows = rows(o)
-    d_start = now + timedelta(days=deltas[0])
-    d_end = now + timedelta(days=deltas[-1])
     u_vals = [x for x in (pct(u, d) for d in deltas) if x is not None]
     o_vals = [x for x in (pct(o, d) for d in deltas) if x is not None]
+
+    # リスク期間: 座間味と同じ基準。「その日の欠航%（上原/大原の高い方）が 31% 以上」の日を
+    # リスク日とし、あればその期間の日付、無ければ「懸念なし」を表示する（閾値31%=MID以上）。
+    risk_dates = []
+    for d in deltas:
+        up, op = pct(u, d), pct(o, d)
+        day_max = max([x for x in (up, op) if x is not None], default=0)
+        if day_max >= _LT_RISK_THRESHOLD:
+            risk_dates.append(now + timedelta(days=d))
+
     period = {
-        "start": f"{d_start.month}/{d_start.day}", "end": f"{d_end.month}/{d_end.day}",
-        "start_en": f"{MON_EN[d_start.month-1]} {d_start.day}",
-        "end_en": f"{MON_EN[d_end.month-1]} {d_end.day}",
+        "has_risk": bool(risk_dates),
         "uehara_max": max(u_vals, default=0),
         "ohara_max": max(o_vals, default=0),
     }
+    if risk_dates:
+        rs, re = risk_dates[0], risk_dates[-1]
+        period.update({
+            "start": f"{rs.month}/{rs.day}", "end": f"{re.month}/{re.day}",
+            "start_en": f"{MON_EN[rs.month-1]} {rs.day}",
+            "end_en": f"{MON_EN[re.month-1]} {re.day}",
+        })
     return cards, period, uehara_rows, ohara_rows
 
 

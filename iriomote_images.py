@@ -307,32 +307,50 @@ def make_iriomote_long(period, uehara, ohara, output_path):
     draw.rectangle([(612, 498), (836, 588)], fill="white")    # 上原 最大%
     draw.rectangle([(942, 498), (1164, 588)], fill="white")   # 大原 最大%
 
-    GREEN = (6, 73, 41)
-    # 「6/7 〜 6/13」: 数字はManrope、区切り「〜」はNoto（Manropeに無く豆腐化するため）で合成
-    f_sep = _njb(70)
-    s1, s2 = period["start"], period["end"]
-    sep = "  〜  "
-    w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
-    ws = draw.textbbox((0, 0), sep, font=f_sep)[2]
-    w2 = draw.textbbox((0, 0), s2, font=f_dates)[2]
-    total = w1 + ws + w2
-    x = LT_DATE_C[0] - total // 2
-    cy = LT_DATE_C[1]
-    draw.text((x, cy), s1, font=f_dates, fill=GREEN, anchor="lm")
-    draw.text((x + w1, cy), sep, font=f_sep, fill=GREEN, anchor="lm")
-    draw.text((x + w1 + ws, cy), s2, font=f_dates, fill=GREEN, anchor="lm")
-    draw.text(LT_DATE_EN, f"{period['start_en']} – {period['end_en']}", font=f_dates_en, fill=(60, 90, 70), anchor="mm")
+    NOCONCERN = (46, 125, 50)   # 座間味と同じ緑
+    if period.get("has_risk"):
+        # リスク期間の日付は重症度連動色（座間味・渡嘉敷と同挙動。全期間の最大%のバンド色）。
+        overall_max = max(period.get("uehara_max", 0), period.get("ohara_max", 0))
+        date_col = _band(overall_max)[3]
+        # 「6/7 〜 6/13」: 数字はManrope、区切り「〜」はNoto（Manropeに無く豆腐化するため）で合成
+        f_sep = _njb(70)
+        s1, s2 = period["start"], period["end"]
+        sep = "  〜  "
+        w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
+        ws = draw.textbbox((0, 0), sep, font=f_sep)[2]
+        w2 = draw.textbbox((0, 0), s2, font=f_dates)[2]
+        total = w1 + ws + w2
+        x = LT_DATE_C[0] - total // 2
+        cy = LT_DATE_C[1]
+        draw.text((x, cy), s1, font=f_dates, fill=date_col, anchor="lm")
+        draw.text((x + w1, cy), sep, font=f_sep, fill=date_col, anchor="lm")
+        draw.text((x + w1 + ws, cy), s2, font=f_dates, fill=date_col, anchor="lm")
+        draw.text(LT_DATE_EN, f"{period['start_en']} – {period['end_en']}",
+                  font=f_dates_en, fill=(90, 100, 120), anchor="mm")
+    else:
+        # リスクが低い期間は日付を出さず「懸念なし」を表示（座間味・渡嘉敷と同挙動）
+        cxm = LT_DATE_C[0]
+        text = "懸念なし  No Significant Risk"
+        size = 52
+        while size > 30:
+            fnt = _njb(size)
+            if draw.textbbox((0, 0), text, font=fnt)[2] <= 540:
+                break
+            size -= 2
+        draw.text((cxm, (LT_DATE_C[1] + LT_DATE_EN[1]) // 2), text,
+                  font=_njb(size), fill=NOCONCERN, anchor="mm")
 
     def big_maxpct(center, pct):
         cx, cy = center
+        col = _band(pct)[3]   # 最大%も重症度連動色（座間味と同挙動）
         num = str(pct)
         nb = draw.textbbox((0, 0), num, font=f_max)
         pb = draw.textbbox((0, 0), "%", font=f_maxpct)
         nw, pw = nb[2] - nb[0], pb[2] - pb[0]
         gap = 4
         x0 = cx - (nw + gap + pw) // 2
-        draw.text((x0, cy), num, font=f_max, fill=GREEN, anchor="lm")
-        draw.text((x0 + nw + gap, cy + 18), "%", font=f_maxpct, fill=GREEN, anchor="lm")
+        draw.text((x0, cy), num, font=f_max, fill=col, anchor="lm")
+        draw.text((x0 + nw + gap, cy + 18), "%", font=f_maxpct, fill=col, anchor="lm")
 
     big_maxpct(LT_PCT_L, period["uehara_max"])
     big_maxpct(LT_PCT_R, period["ohara_max"])
