@@ -18,6 +18,8 @@ W = 1254
 _PHOTO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "photos")
 BG_SHORT = os.path.join(_PHOTO_DIR, "others_short_bg.jpg")   # 竹富島の集落
 BG_LONG = os.path.join(_PHOTO_DIR, "others_long_bg.jpg")     # 波照間島（日本最南端）
+BG_WEATHER = os.path.join(_PHOTO_DIR, "others_weather_bg.jpg")  # 鳩間島
+BG_IRIOMOTE_WEATHER = os.path.join(_PHOTO_DIR, "iriomote_weather_bg.jpg")  # 西表島（気象面用）
 
 
 def _photo_bg(path, keep=0.55, top_dark=0.42, top_h=300):
@@ -273,6 +275,130 @@ def make_others_long(period, islands, output_path):
               font=_nj(16), fill=(225, 235, 248), anchor="mm")
     draw.text((cx, 1196), "*AI estimates. Check Anei Kanko official for cancellations.",
               font=_en(15), fill=(190, 210, 235), anchor="mm")
+
+    img.save(output_path)
+    return output_path
+
+
+# ============================================================
+# 気象データ面（写真背景＋白カードのデータ表）
+# ============================================================
+def make_weather(bg_path, title_line_ja, title_line_en, rows, now, output_path,
+                 wave_thr=2.5, swell_thr=2.0, wind_thr=12.0):
+    """rows: [{name_ja, name_en, days:[{max_wave,max_swell,max_wind} x8(index0..7)]}]
+    短期(明日/明後日)の波高・うねり・風速 と 3〜7日先の波高 を白カードで表示する。"""
+    from datetime import timedelta
+    DAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
+    DAY_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    MON_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    img = _photo_bg(bg_path)
+    draw = ImageDraw.Draw(img)
+    cx = W // 2
+
+    draw.text((cx, 48), "予報根拠データ  Forecast Data", font=_njb(44), fill="white", anchor="mm")
+    draw.text((cx, 92), "気象データに基づくリスク根拠  /  Weather basis for the forecast",
+              font=_nj(20), fill=(206, 226, 245), anchor="mm")
+    draw.text((cx, 128), f"{title_line_ja}   {title_line_en}",
+              font=_nj(22), fill=(190, 214, 240), anchor="mm")
+
+    HI = (211, 47, 47)      # 閾値超の値
+    NORMAL = (40, 50, 70)   # 通常の値
+    HEAD = (90, 100, 120)
+    SUBHEAD = (120, 130, 150)
+
+    def fmt(v):
+        return f"{v:.1f}" if v is not None else "—"
+
+    def val_color(v, thr):
+        return HI if (v is not None and v >= thr) else NORMAL
+
+    n = len(rows)
+    tmr, dayafter = now + timedelta(days=1), now + timedelta(days=2)
+
+    # ── セクションA: 明日/明後日 × 波高/うねり/風速（白カード）──
+    ca = (40, 168, 1214, 706)
+    draw.rounded_rectangle(ca, radius=22, fill=(250, 251, 252))
+    name_x = 70
+    gA_x, gB_x = 300, 764          # 各日グループ左端
+    cw = 150                       # 各指標列幅
+    f_dhead = _njb(23)
+    f_dhead_en = _en(15)
+    f_col = _nj(17)
+    f_col_en = _en(13)
+    f_name = _njb(24)
+    f_name_en = _en(15)
+    f_val = _num(26)
+
+    # 日グループ見出し
+    for gx, dt, ja in [(gA_x, tmr, "明日"), (gB_x, dayafter, "明後日")]:
+        gcx = gx + int(1.5 * cw)
+        draw.text((gcx, ca[1] + 34), f"{ja}  {dt.month}/{dt.day}（{DAY_JA[dt.weekday()]}）",
+                  font=f_dhead, fill=(30, 45, 70), anchor="mm")
+        draw.text((gcx, ca[1] + 58), f"{MON_EN[dt.month-1]} {dt.day} ({DAY_EN[dt.weekday()]})",
+                  font=f_dhead_en, fill=SUBHEAD, anchor="mm")
+    # 列見出し
+    col_hy = ca[1] + 96
+    draw.text((name_x, col_hy), "航路 / 島", font=f_col, fill=HEAD, anchor="lm")
+    for gx in (gA_x, gB_x):
+        for ci, (ja, en) in enumerate([("波高", "Wave"), ("うねり", "Swell"), ("風速", "Wind")]):
+            ccx = gx + ci * cw + cw // 2
+            draw.text((ccx, col_hy - 8), ja, font=f_col, fill=HEAD, anchor="mm")
+            draw.text((ccx, col_hy + 12), en, font=f_col_en, fill=SUBHEAD, anchor="mm")
+    draw.line([(ca[0] + 24, col_hy + 28), (ca[2] - 24, col_hy + 28)], fill=(226, 230, 236), width=2)
+    # データ行
+    rtop = col_hy + 46
+    rh = (ca[3] - 26 - rtop) // max(n, 1)
+    for i, r in enumerate(rows):
+        ry = rtop + i * rh
+        rcy = ry + rh // 2
+        if i % 2 == 1:
+            draw.rounded_rectangle([(ca[0] + 16, ry), (ca[2] - 16, ry + rh)], radius=12, fill=(241, 245, 249))
+        draw.text((name_x, rcy - 12), r["name_ja"], font=f_name, fill=(30, 40, 60), anchor="lm")
+        draw.text((name_x, rcy + 16), r["name_en"], font=f_name_en, fill=SUBHEAD, anchor="lm")
+        for gx, delta in [(gA_x, 1), (gB_x, 2)]:
+            d = r["days"][delta] if delta < len(r["days"]) else {}
+            for ci, (key, thr) in enumerate([("max_wave", wave_thr), ("max_swell", swell_thr), ("max_wind", wind_thr)]):
+                v = d.get(key)
+                draw.text((gx + ci * cw + cw // 2, rcy), fmt(v), font=f_val,
+                          fill=val_color(v, thr), anchor="mm")
+
+    # ── セクションB: 3〜7日先の波高（白カード）──
+    cb = (40, 724, 1214, 1096)
+    draw.rounded_rectangle(cb, radius=22, fill=(250, 251, 252))
+    draw.text(((cb[0] + cb[2]) // 2, cb[1] + 34), "3〜7日先の波高  Wave Height Outlook (3-7 days ahead, m)",
+              font=_njb(21), fill=(30, 45, 70), anchor="mm")
+    days5 = [now + timedelta(days=d) for d in range(3, 8)]
+    bname_x = 70
+    bcol_x0 = 300
+    bcw = (cb[2] - 40 - bcol_x0) // 5
+    bhy = cb[1] + 74
+    for ci, dt in enumerate(days5):
+        bcx = bcol_x0 + ci * bcw + bcw // 2
+        draw.text((bcx, bhy - 8), f"{dt.month}/{dt.day}（{DAY_JA[dt.weekday()]}）", font=_nj(16), fill=HEAD, anchor="mm")
+        draw.text((bcx, bhy + 12), f"{MON_EN[dt.month-1]} {dt.day}", font=_en(12), fill=SUBHEAD, anchor="mm")
+    draw.line([(cb[0] + 24, bhy + 28), (cb[2] - 24, bhy + 28)], fill=(226, 230, 236), width=2)
+    brtop = bhy + 44
+    brh = (cb[3] - 24 - brtop) // max(n, 1)
+    for i, r in enumerate(rows):
+        ry = brtop + i * brh
+        rcy = ry + brh // 2
+        if i % 2 == 1:
+            draw.rounded_rectangle([(cb[0] + 16, ry), (cb[2] - 16, ry + brh)], radius=12, fill=(241, 245, 249))
+        draw.text((bname_x, rcy), r["name_ja"], font=_njb(20), fill=(30, 40, 60), anchor="lm")
+        for ci, delta in enumerate(range(3, 8)):
+            d = r["days"][delta] if delta < len(r["days"]) else {}
+            v = d.get("max_wave")
+            draw.text((bcol_x0 + ci * bcw + bcw // 2, rcy), fmt(v), font=_num(24),
+                      fill=val_color(v, wave_thr), anchor="mm")
+
+    # 情報源・免責
+    draw.text((cx, 1128), "【情報源】Open-Meteo Marine API  /  安栄観光 aneikankou.co.jp",
+              font=_nj(16), fill=(225, 235, 248), anchor="mm")
+    draw.text((cx, 1158), "※欠航判断は安栄観光が行います。本データはAI予測の参考値です。",
+              font=_nj(15), fill=(210, 226, 245), anchor="mm")
+    draw.text((cx, 1184), f"生成: {now.strftime('%Y-%m-%d %H:%M')} JST",
+              font=_nj(13), fill=(180, 202, 228), anchor="mm")
 
     img.save(output_path)
     return output_path

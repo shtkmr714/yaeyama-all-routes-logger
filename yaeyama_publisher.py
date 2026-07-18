@@ -1249,6 +1249,13 @@ def _build_iriomote_data(probs_by_route, now):
 _R_OTHERS = ["route3", "route6", "route7"]   # 竹富, 波照間, 鳩間
 
 
+def _weather_row(rid, batched, name_ja, name_en):
+    """気象面(others_images.make_weather)用の1行を作る。days は batched の該当地点(index0..7)。"""
+    info = ROUTE_INFO[rid]
+    return {"name_ja": name_ja, "name_en": name_en,
+            "days": batched.get((info["lat"], info["lon"]), [{}] * 8)}
+
+
 def _build_others_data(probs_by_route, now):
     """probs_by_route から その他3島テンプレ用の (短期cards, 長期period, islands) を作る。
     短期=明日/明後日、長期=3〜7日先の5日間。リスク期間判定は西表・座間味と同じ閾値。"""
@@ -1391,12 +1398,22 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
             cards, period, uehara_rows, ohara_rows = _build_iriomote_data(probs_by_route, now)
             iriomote_images.make_iriomote_short(cards, p1)
             iriomote_images.make_iriomote_long(period, uehara_rows, ohara_rows, p2)
-            make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
+            w_rows = [_weather_row(rid, batched, f"{ROUTE_INFO[rid]['short']}航路",
+                                   ROUTE_INFO[rid]['en']) for rid in rts]
+            others_images.make_weather(
+                others_images.BG_IRIOMOTE_WEATHER,
+                "石垣島⇔西表島（上原・大原）", "Ishigaki ⇔ Iriomote (Uehara / Ohara)",
+                w_rows, now, p3)
         else:
             o_cards, o_period, o_islands = _build_others_data(probs_by_route, now)
             others_images.make_others_short(o_cards, p1)
             others_images.make_others_long(o_period, o_islands, p2)
-            make_image_weatherdata(probs_by_route, batched, p3, routes=rts)
+            w_rows = [_weather_row(rid, batched, ROUTE_INFO[rid]['island_ja'],
+                                   ROUTE_INFO[rid]['island_en']) for rid in rts]
+            others_images.make_weather(
+                others_images.BG_WEATHER,
+                "八重山（竹富・波照間・鳩間）", "Yaeyama (Taketomi / Hateruma / Hatoma)",
+                w_rows, now, p3)
 
         # GitHub Pages へアップロード
         image_urls = _upload_images_to_github([p1, p2, p3])
