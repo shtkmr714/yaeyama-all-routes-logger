@@ -221,9 +221,9 @@ def make_iriomote_short(cards, output_path):
         draw.text((cx, 488), f"欠航リスク：{bj}", font=f_riskjp, fill=btxt, anchor="mm")
         draw.text((cx, 524), f"{be} RISK", font=f_risken, fill=btxt, anchor="mm")
 
-        # 2ルートのサブボックス
-        route_box((x0 + 24, 583, x1 - 24, 748), day["routes"][0])
-        route_box((x0 + 24, 783, x1 - 24, 948), day["routes"][1])
+        # 2ルートのサブボックス（左右を広げてゆとりを持たせる）
+        route_box((x0 + 14, 583, x1 - 14, 748), day["routes"][0])
+        route_box((x0 + 14, 783, x1 - 14, 948), day["routes"][1])
 
     img.save(output_path)
     return output_path

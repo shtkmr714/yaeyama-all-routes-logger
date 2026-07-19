@@ -1193,9 +1193,9 @@ def _build_iriomote_data(probs_by_route, now):
             "label_en": le,
             "headline_pct": head,
             "routes": [
-                {"name_ja": "上原航路", "name_en": "Uehara Route",
+                {"name_ja": "上原航路", "name_en": "Uehara",
                  "pct": up or 0, "suspended": False, "color": iriomote_images.COL_UEHARA},
-                {"name_ja": "大原航路", "name_en": "Ohara Route",
+                {"name_ja": "大原航路", "name_en": "Ohara",
                  "pct": op or 0, "suspended": False, "color": iriomote_images.COL_OHARA},
             ],
         })
