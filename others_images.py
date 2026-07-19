@@ -258,7 +258,7 @@ def make_others_long(period, islands, output_path):
         rows = isl["rows"]
         top, bottom = py0 + 108, py1 - 34
         step = (bottom - top) / (len(rows) - 1) if len(rows) > 1 else 0
-        bar_x0, bar_x1 = px0 + 128, px0 + 288
+        bar_x0, bar_x1 = px0 + 128, px0 + 262   # bar短縮でラベル(運休/Suspended/%)の右端はみ出し防止
         for i, r in enumerate(rows):
             y = int(top + i * step)
             draw.text((px0 + 24, y), r["date_ja"], font=f_row_ja, fill=(40, 44, 50), anchor="lm")
