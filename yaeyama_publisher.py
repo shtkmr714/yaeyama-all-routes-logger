@@ -374,6 +374,8 @@ def _fonts():
 
 
 def make_image_short(probs_by_route, output_path, routes=None):
+    # DEPRECATED: 未使用。本番の八重山投稿は iriomote_images / others_images が担う（run_yaeyama_publisher 参照）。
+    # 旧「全5航路1枚テーブル」形式。混乱・誤修正防止のため残置は明示。レイアウト修正はこの関数ではなく上記モジュールへ。
     """画像①: 短期予報（航路 × 明日/明後日）。routes未指定なら全5航路。"""
     routes   = routes or MODEL_ROUTES
     now      = datetime.now(JST)
@@ -455,6 +457,8 @@ def make_image_short(probs_by_route, output_path, routes=None):
 
 
 def make_image_longterm(probs_by_route, output_path, routes=None):
+    # DEPRECATED: 未使用。本番の八重山投稿は iriomote_images / others_images が担う（run_yaeyama_publisher 参照）。
+    # 旧「全5航路1枚テーブル」形式。混乱・誤修正防止のため残置は明示。レイアウト修正はこの関数ではなく上記モジュールへ。
     """
     画像②: 長期予報（3〜7日先）。routes未指定なら全5航路。
     レイアウト: 航路（行）× 5日（列）のテーブル形式
@@ -572,6 +576,8 @@ def make_image_longterm(probs_by_route, output_path, routes=None):
 
 
 def make_image_weatherdata(probs_by_route, batched_forecast, output_path, routes=None):
+    # DEPRECATED: 未使用。本番の八重山投稿は iriomote_images / others_images が担う（run_yaeyama_publisher 参照）。
+    # 旧「全5航路1枚テーブル」形式。混乱・誤修正防止のため残置は明示。レイアウト修正はこの関数ではなく上記モジュールへ。
     """
     画像③: 予報根拠データ
     - セクションA: 明日 + 明後日 の5航路 × 波高/うねり/風速（欠航リスク%は表示しない）
