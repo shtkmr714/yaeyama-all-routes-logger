@@ -1365,8 +1365,8 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
             "key": "others", "kind": "table",
             "routes": ["route3", "route6", "route7"],   # 竹富, 波照間, 鳩間
             "label": "八重山（竹富・波照間・鳩間）",
-            "header_ja": "🚢 八重山（竹富・波照間・鳩間）欠航リスク予報",
-            "header_en": "🚢 Yaeyama (Taketomi / Hateruma / Hatoma)  Cancellation Risk",
+            "header_ja": "🚢 石垣島⇔八重山（竹富・波照間・鳩間）欠航リスク予報",
+            "header_en": "🚢 Ishigaki ⇔ Yaeyama (Taketomi / Hateruma / Hatoma)  Cancellation Risk",
             "hashtags": [
                 "#八重山 #石垣島 #竹富島 #波照間島 #鳩間島 #欠航予報",
                 "#YaeyamaIslands #OkinawaFerry #JapanTravel #IslandHopping",
@@ -1418,7 +1418,7 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
                                    ROUTE_INFO[rid]['island_en']) for rid in rts]
             others_images.make_weather(
                 others_images.BG_WEATHER,
-                "八重山（竹富・波照間・鳩間）", "Yaeyama (Taketomi / Hateruma / Hatoma)",
+                "石垣島⇔八重山（竹富・波照間・鳩間）", "Ishigaki ⇔ Yaeyama (Taketomi / Hateruma / Hatoma)",
                 w_rows, now, p3)
 
         # GitHub Pages へアップロード

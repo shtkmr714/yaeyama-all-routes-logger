@@ -106,7 +106,7 @@ def make_others_short(cards, output_path):
     draw = ImageDraw.Draw(img)
     _header(draw, "フェリー欠航予測", "AIによる欠航リスク予測",
             "石垣島⇔八重山（竹富・波照間・鳩間）",
-            "Yaeyama (Taketomi / Hateruma / Hatoma)")
+            "Ishigaki ⇔ Yaeyama (Taketomi / Hateruma / Hatoma)")
 
     f_badge = _njb(30)
     f_en = _en(26)
@@ -205,7 +205,7 @@ def make_others_long(period, islands, output_path):
     draw.text((cx, 48), "フェリー欠航可能性 長期予報（3〜7日先）", font=_njb(42), fill="white", anchor="mm")
     draw.text((cx, 92), "Ferry Cancellation Risk  /  Long-term Forecast (3-7 days ahead)",
               font=_en(21), fill=(206, 226, 245), anchor="mm")
-    draw.text((cx, 132), "八重山（竹富・波照間・鳩間）  Yaeyama (Taketomi / Hateruma / Hatoma)",
+    draw.text((cx, 132), "石垣島⇔八重山（竹富・波照間・鳩間）  Ishigaki ⇔ Yaeyama (Taketomi / Hateruma / Hatoma)",
               font=_nj(23), fill=(190, 214, 240), anchor="mm")
 
     # リスク期間ボックス（中央・白カード）
