@@ -105,7 +105,7 @@ def make_others_short(cards, output_path):
     img = _photo_bg(BG_SHORT)
     draw = ImageDraw.Draw(img)
     _header(draw, "フェリー欠航予測", "AIによる欠航リスク予測",
-            "八重山（竹富・波照間・鳩間）",
+            "石垣島⇔八重山（竹富・波照間・鳩間）",
             "Yaeyama (Taketomi / Hateruma / Hatoma)")
 
     f_badge = _njb(30)
