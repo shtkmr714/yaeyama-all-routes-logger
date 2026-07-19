@@ -253,7 +253,7 @@ LT_PCT_R = (1037, 542)       # 大原の最大%中央
 
 # 7日バーパネル（左=上原 / 右=大原）
 LT_PANEL_L = (108, 720, 612, 998)
-LT_PANEL_R = (652, 720, 1170, 998)
+LT_PANEL_R = (652, 720, 1152, 998)
 LT_ROW_Y0 = 742
 LT_ROW_BOTTOM = 976   # 最終行の中心。この範囲(742〜976)に行数ぶんを均等配置する。
 LT_ROW_STEP = 39      # 7行時の実測ステップ（後方互換の目安）
@@ -315,18 +315,25 @@ def make_iriomote_long(period, uehara, ohara, output_path):
         # 「6/7 〜 6/13」: 数字はManrope、区切り「〜」はNoto（Manropeに無く豆腐化するため）で合成
         f_sep = _njb(70)
         s1, s2 = period["start"], period["end"]
-        sep = "  〜  "
-        w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
-        ws = draw.textbbox((0, 0), sep, font=f_sep)[2]
-        w2 = draw.textbbox((0, 0), s2, font=f_dates)[2]
-        total = w1 + ws + w2
-        x = LT_DATE_C[0] - total // 2
-        cy = LT_DATE_C[1]
-        draw.text((x, cy), s1, font=f_dates, fill=date_col, anchor="lm")
-        draw.text((x + w1, cy), sep, font=f_sep, fill=date_col, anchor="lm")
-        draw.text((x + w1 + ws, cy), s2, font=f_dates, fill=date_col, anchor="lm")
-        draw.text(LT_DATE_EN, f"{period['start_en']} – {period['end_en']}",
-                  font=f_dates_en, fill=(90, 100, 120), anchor="mm")
+        if s1 == s2:
+            # リスク日が1日：その日だけを中央表示（「X 〜 X」にしない）
+            w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
+            draw.text((LT_DATE_C[0] - w1 // 2, LT_DATE_C[1]), s1,
+                      font=f_dates, fill=date_col, anchor="lm")
+            en_text = period["start_en"]
+        else:
+            sep = "  〜  "
+            w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
+            ws = draw.textbbox((0, 0), sep, font=f_sep)[2]
+            w2 = draw.textbbox((0, 0), s2, font=f_dates)[2]
+            total = w1 + ws + w2
+            x = LT_DATE_C[0] - total // 2
+            cy = LT_DATE_C[1]
+            draw.text((x, cy), s1, font=f_dates, fill=date_col, anchor="lm")
+            draw.text((x + w1, cy), sep, font=f_sep, fill=date_col, anchor="lm")
+            draw.text((x + w1 + ws, cy), s2, font=f_dates, fill=date_col, anchor="lm")
+            en_text = f"{period['start_en']} – {period['end_en']}"
+        draw.text(LT_DATE_EN, en_text, font=f_dates_en, fill=(90, 100, 120), anchor="mm")
     else:
         # リスクが低い期間は日付を出さず「懸念なし」を表示（座間味・渡嘉敷と同挙動）
         cxm = LT_DATE_C[0]
