@@ -223,7 +223,7 @@ def make_others_long(period, islands, output_path):
             # リスク日が1日：その日だけを中央表示
             w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
             draw.text((bcx - w1 // 2, 330), s1, font=f_dates, fill=col, anchor="lm")
-            en_text = f"Around {period['start_en']}"
+            en_text = period["start_en"]
         else:
             sep = "  〜  "
             w1 = draw.textbbox((0, 0), s1, font=f_dates)[2]
@@ -232,7 +232,7 @@ def make_others_long(period, islands, output_path):
             draw.text((x, 330), s1, font=f_dates, fill=col, anchor="lm")
             draw.text((x + w1, 330), sep, font=f_sep, fill=col, anchor="lm")
             draw.text((x + w1 + ws, 330), s2, font=f_dates, fill=col, anchor="lm")
-            en_text = f"Around {period['start_en']} - {period['end_en']}"
+            en_text = f"{period['start_en']} - {period['end_en']}"
         draw.text((bcx, 392), en_text, font=_en(24), fill=(90, 100, 120), anchor="mm")
         b = _band(period.get("max_pct", 0))
         draw.text((bcx, 452), f"最大 {period.get('max_pct', 0)}%  Max Risk",
