@@ -1105,6 +1105,23 @@ def _load_active_suspensions():
         return []
 
 
+def _suspended_routes(dt, suspensions):
+    """dt の日に計画運休中の route id の集合を返す。
+    航路はエントリの "routes"（例: ["route5"]）で指定する。"routes" の無いエントリは
+    航路を特定できないためキャプション告知のみ（画像には反映しない）。"""
+    d = dt.date() if isinstance(dt, datetime) else dt
+    out = set()
+    for s in suspensions or []:
+        try:
+            start = datetime.strptime(s["start"], "%Y-%m-%d").date()
+            end = datetime.strptime(s["end"], "%Y-%m-%d").date()
+        except (KeyError, ValueError, TypeError):
+            continue
+        if start <= d <= end:
+            out.update(s.get("routes") or [])
+    return out
+
+
 def _is_notable_caution(text):
     """通常運航以外の重要なお知らせかどうか判定"""
     if not text:
@@ -1144,6 +1161,9 @@ def _build_caption(probs_by_route, now, routes=None, header_ja=None, header_en=N
         info  = ROUTE_INFO[rid]
         probs = probs_by_route.get(rid, [None] * 7)
         pct1  = _pct(probs[1])
+        if rid in _suspended_routes(tmr, suspensions):
+            lines.append(f"⛔ {_route_label_ja(rid)} / {_route_label_en(rid)}: 運休 / Suspended")
+            continue
         if pct1 is None:
             continue
         icon = "🔴" if pct1 >= 70 else ("🟡" if pct1 >= 40 else "🟢")
@@ -1174,7 +1194,7 @@ _R_OHARA = "route1"    # 大原（西表島東）
 _LT_RISK_THRESHOLD = 31
 
 
-def _build_iriomote_data(probs_by_route, now):
+def _build_iriomote_data(probs_by_route, now, suspensions=None):
     """probs_by_route から西表テンプレ用の (短期cards, 長期period, 上原rows, 大原rows) を作る。
     八重山モデルは日次1値のみ。短期カードは上原/大原それぞれ「その日の欠航%」を1つ表示する。"""
     DAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
@@ -1191,8 +1211,11 @@ def _build_iriomote_data(probs_by_route, now):
     cards = []
     for delta, lj, le in [(1, "明日", "TOMORROW"), (2, "明後日", "DAY AFTER")]:
         dt = now + timedelta(days=delta)
+        sus = _suspended_routes(dt, suspensions)
         up, op = pct(u, delta), pct(o, delta)
-        head = max([p for p in (up, op) if p is not None], default=0)
+        # 運休航路は欠航%の見出しから除外（座間味 forecast_publisher と同じ扱い）
+        head = max([p for p, r in ((up, _R_UEHARA), (op, _R_OHARA))
+                    if p is not None and r not in sus], default=0)
         cards.append({
             "label_ja": lj,
             "date_label": f"{dt.month}/{dt.day}",
@@ -1200,15 +1223,21 @@ def _build_iriomote_data(probs_by_route, now):
             "headline_pct": head,
             "routes": [
                 {"name_ja": "上原航路", "name_en": "Uehara",
-                 "pct": up or 0, "suspended": False, "color": iriomote_images.COL_UEHARA},
+                 "pct": up or 0, "suspended": _R_UEHARA in sus, "color": iriomote_images.COL_UEHARA},
                 {"name_ja": "大原航路", "name_en": "Ohara",
-                 "pct": op or 0, "suspended": False, "color": iriomote_images.COL_OHARA},
+                 "pct": op or 0, "suspended": _R_OHARA in sus, "color": iriomote_images.COL_OHARA},
             ],
         })
 
     # ── 長期（3〜7日先の5日間。短期カードが明日・明後日を担うため重複させない）──
     deltas = list(range(3, 8))
-    def rows(lst):
+    sus_by_d = {d: _suspended_routes(now + timedelta(days=d), suspensions) for d in deltas}
+
+    def running(lst, rid, d):
+        """運休日は None（リスク判定・最大値から除外する）"""
+        return None if rid in sus_by_d[d] else pct(lst, d)
+
+    def rows(lst, rid):
         r = []
         for d in deltas:
             dt = now + timedelta(days=d)
@@ -1216,20 +1245,20 @@ def _build_iriomote_data(probs_by_route, now):
                 "date_ja": f"{dt.month}/{dt.day}({DAY_JA[dt.weekday()]})",
                 "date_en": DAY_EN[dt.weekday()],
                 "pct": pct(lst, d),
-                "suspended": False,
+                "suspended": rid in sus_by_d[d],
             })
         return r
 
-    uehara_rows = rows(u)
-    ohara_rows = rows(o)
-    u_vals = [x for x in (pct(u, d) for d in deltas) if x is not None]
-    o_vals = [x for x in (pct(o, d) for d in deltas) if x is not None]
+    uehara_rows = rows(u, _R_UEHARA)
+    ohara_rows = rows(o, _R_OHARA)
+    u_vals = [x for x in (running(u, _R_UEHARA, d) for d in deltas) if x is not None]
+    o_vals = [x for x in (running(o, _R_OHARA, d) for d in deltas) if x is not None]
 
     # リスク期間: 座間味と同じ基準。「その日の欠航%（上原/大原の高い方）が 31% 以上」の日を
     # リスク日とし、あればその期間の日付、無ければ「懸念なし」を表示する（閾値31%=MID以上）。
     risk_dates = []
     for d in deltas:
-        up, op = pct(u, d), pct(o, d)
+        up, op = running(u, _R_UEHARA, d), running(o, _R_OHARA, d)
         day_max = max([x for x in (up, op) if x is not None], default=0)
         if day_max >= _LT_RISK_THRESHOLD:
             risk_dates.append(now + timedelta(days=d))
@@ -1262,7 +1291,7 @@ def _weather_row(rid, batched, name_ja, name_en):
             "days": batched.get((info["lat"], info["lon"]), [{}] * 8)}
 
 
-def _build_others_data(probs_by_route, now):
+def _build_others_data(probs_by_route, now, suspensions=None):
     """probs_by_route から その他3島テンプレ用の (短期cards, 長期period, islands) を作る。
     短期=明日/明後日、長期=3〜7日先の5日間。リスク期間判定は西表・座間味と同じ閾値。"""
     DAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
@@ -1277,17 +1306,24 @@ def _build_others_data(probs_by_route, now):
     cards = []
     for delta, lj, le in [(1, "明日", "TOMORROW"), (2, "明後日", "DAY AFTER")]:
         dt = now + timedelta(days=delta)
+        sus = _suspended_routes(dt, suspensions)
         isls = []
         for rid in _R_OTHERS:
             info = ROUTE_INFO[rid]
             isls.append({"name_ja": info["island_ja"], "name_en": info["island_en"],
-                         "pct": pct(rid, delta) or 0, "suspended": False})
-        head = max([i["pct"] for i in isls], default=0)
+                         "pct": pct(rid, delta) or 0, "suspended": rid in sus})
+        head = max([i["pct"] for i in isls if not i["suspended"]], default=0)
         cards.append({"label_ja": lj, "date_label": f"{dt.month}/{dt.day}",
                       "label_en": le, "headline_pct": head, "islands": isls})
 
     # ── 長期（3〜7日先の5日間）──
     deltas = list(range(3, 8))
+    sus_by_d = {d: _suspended_routes(now + timedelta(days=d), suspensions) for d in deltas}
+
+    def running(rid, d):
+        """運休日は 0 扱い（リスク判定・最大値から除外する）"""
+        return 0 if rid in sus_by_d[d] else (pct(rid, d) or 0)
+
     islands = []
     for rid in _R_OTHERS:
         info = ROUTE_INFO[rid]
@@ -1295,16 +1331,17 @@ def _build_others_data(probs_by_route, now):
         for d in deltas:
             dt = now + timedelta(days=d)
             rows.append({"date_ja": f"{dt.month}/{dt.day}({DAY_JA[dt.weekday()]})",
-                         "date_en": DAY_EN[dt.weekday()], "pct": pct(rid, d), "suspended": False})
+                         "date_en": DAY_EN[dt.weekday()], "pct": pct(rid, d),
+                         "suspended": rid in sus_by_d[d]})
         islands.append({"name_ja": info["island_ja"], "name_en": info["island_en"], "rows": rows})
 
     # リスク期間: いずれかの島の欠航% >= 31% の日
     risk_dates = []
     for d in deltas:
-        day_max = max([pct(rid, d) or 0 for rid in _R_OTHERS], default=0)
+        day_max = max([running(rid, d) for rid in _R_OTHERS], default=0)
         if day_max >= _LT_RISK_THRESHOLD:
             risk_dates.append(now + timedelta(days=d))
-    overall_max = max([pct(rid, d) or 0 for rid in _R_OTHERS for d in deltas], default=0)
+    overall_max = max([running(rid, d) for rid in _R_OTHERS for d in deltas], default=0)
     period = {"has_risk": bool(risk_dates), "max_pct": overall_max}
     if risk_dates:
         rs, re = risk_dates[0], risk_dates[-1]
@@ -1401,7 +1438,7 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
         p2 = f"{output_dir}/{key}_img2_longterm_{ts}.png"
         p3 = f"{output_dir}/{key}_img3_weatherdata_{ts}.png"
         if u["kind"] == "iriomote":
-            cards, period, uehara_rows, ohara_rows = _build_iriomote_data(probs_by_route, now)
+            cards, period, uehara_rows, ohara_rows = _build_iriomote_data(probs_by_route, now, suspensions)
             iriomote_images.make_iriomote_short(cards, p1)
             iriomote_images.make_iriomote_long(period, uehara_rows, ohara_rows, p2)
             w_rows = [_weather_row(rid, batched, f"{ROUTE_INFO[rid]['short']}航路",
@@ -1411,7 +1448,7 @@ def run_yaeyama_publisher(route_data_list=None, cancel_models=None, caution_text
                 "石垣島⇔西表島（上原・大原）", "Ishigaki ⇔ Iriomote (Uehara / Ohara)",
                 w_rows, now, p3)
         else:
-            o_cards, o_period, o_islands = _build_others_data(probs_by_route, now)
+            o_cards, o_period, o_islands = _build_others_data(probs_by_route, now, suspensions)
             others_images.make_others_short(o_cards, p1)
             others_images.make_others_long(o_period, o_islands, p2)
             w_rows = [_weather_row(rid, batched, ROUTE_INFO[rid]['island_ja'],
